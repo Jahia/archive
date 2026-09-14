@@ -93,7 +93,12 @@ export const ArchiveContentAction = ({path, render: Render, ...otherProps}) => {
             const result = await ArchiveService.archiveNode(path);
 
             if (result.success) {
-                showNotification(`Content archived successfully to ${result.destinationPath}`, 'success');
+                // A false `locked` flag means the content is archived but stayed
+                // editable — a success the user still needs to know about.
+                showNotification(
+                    `${result.message} (${result.destinationPath})`,
+                    result.locked === false ? 'warning' : 'success'
+                );
 
                 // Clear Apollo cache for both paths
                 try {

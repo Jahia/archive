@@ -83,7 +83,12 @@ export const RestoreArchiveAction = ({path, render: Render, ...otherProps}) => {
             const result = await ArchiveService.restoreNode(path, targetParentPath);
 
             if (result.success) {
-                showNotification(`Content restored successfully to ${result.destinationPath}`, 'success');
+                // A false `markerRemoved` flag means the content is back in place but
+                // still flagged archived — surfaced so the user can retry the restore.
+                showNotification(
+                    `${result.message} (${result.destinationPath})`,
+                    result.markerRemoved === false ? 'warning' : 'success'
+                );
 
                 // Clear Apollo cache for both paths
                 try {

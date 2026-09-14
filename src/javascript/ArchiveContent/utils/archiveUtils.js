@@ -54,7 +54,13 @@ export const extractSiteKeyFromPath = path => {
 };
 
 /**
- * Check if a node is published
+ * Check if a node is published, for one language.
+ *
+ * Reads `aggregatedPublicationInfo.publicationStatus` and falls back to an
+ * `isPublished` property alias. A caller passing a node fetched without either
+ * field gets `false` for every node — query `aggregatedPublicationInfo(language: …)`
+ * (it takes a mandatory `language` argument) before relying on this.
+ *
  * @param {Object} nodeInfo - Node information from GraphQL query
  * @returns {boolean} True if node is published
  */
