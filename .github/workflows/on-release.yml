@@ -33,6 +33,13 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GH_SSH_PRIVATE_KEY_JAHIACI }}
 
+      # actions/checkout adds this under a HOME it overrides only for itself, so the
+      # setting is gone by the time the release action runs its own git commands. The
+      # job runs in a container as root against a workspace checked out by another uid,
+      # so without it the first `git fetch` aborts with "detected dubious ownership".
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - uses: jahia/jahia-modules-action/release@v2
         name: Release Module
         with:
