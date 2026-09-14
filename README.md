@@ -326,7 +326,10 @@ Production builds automatically suppress debug logs.
 
 ### Prerequisites
 
-- Node.js 14+
+- Node.js 20 (the Maven build pins v20.18.0 via `frontend-maven-plugin`)
+- Yarn 1.22 — the project is pinned with `packageManager` in `package.json`. A
+  corepack-managed yarn honours that pin; do not add a `.yarnrc.yml`, which would make
+  yarn treat this Berry-style and refuse the v1 lockfile.
 - Maven 3.6+
 - Jahia DX 8.2+ (jContent 3.7+ required for Archive Manager custom columns)
 
@@ -338,12 +341,12 @@ Production builds automatically suppress debug logs.
 
 ```bash
 # Install dependencies
-npm install
+yarn install --frozen-lockfile
 
-# Build frontend assets
-npm run webpack
+# Lint and build frontend assets
+yarn build
 
-# Build Java module
+# Build the module (runs the frontend build too)
 mvn clean install
 ```
 
@@ -418,7 +421,9 @@ setCustomProperty: setProperty(
 
 1. **Single Selection**: Currently supports single node selection (not bulk archive)
 2. **Manual Unpublish**: Published content must be manually unpublished
-3. **Permission Configuration**: Read-only enforcement requires ACL setup
+3. **Permission Configuration**: archived content is locked, which is what makes it
+   read-only. Denying write on `jmix:archived` via role ACLs is an optional extra layer
+   the module does not ship.
 
 ## Roadmap
 
@@ -427,6 +432,36 @@ setCustomProperty: setProperty(
 - [ ] Bulk archive (multi-selection support)
 - [ ] Scheduled auto-archive based on content age
 - [ ] Archive analytics and reporting
+
+## Contributing
+
+### Continuous integration
+
+Every pull request runs `.github/workflows/on-code-change.yml`: static analysis (lint and
+dependency audit), the Maven build, and SonarQube analysis. The Quality Gate must pass.
+
+`schedule-sonar.yml` analyses `main` on a schedule and on demand. That run is what gives
+SonarQube a baseline; without it, a pull request's "new code" is the whole repository and
+its gate reports the entire codebase's debt against whoever opened it.
+
+### Changelog
+
+Do not edit `CHANGELOG.md` by hand. This repository uses **chachalog**: a user-facing
+change carries a fragment in `.chachalog/`, named randomly to avoid collisions between
+pull requests.
+
+```markdown
+---
+archive: patch
+---
+
+Fixed <the user-visible outcome, one sentence>.
+```
+
+The bump is `patch`, `minor` or `major`. Write the outcome a content editor would notice,
+not the implementation — no class, method or service names. A purely internal change
+(refactor, test, CI, docs) needs no fragment. The `Chachalog - Prepare Changelog` workflow
+aggregates the fragments and updates `CHANGELOG.md` on release.
 
 ## Support
 
