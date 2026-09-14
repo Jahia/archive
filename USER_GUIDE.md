@@ -130,11 +130,16 @@ Each archived item stores:
 **What happens:**
 - ⚠️ Warning dialog appears: "Cannot Archive Published Content"
 - Message: "Please unpublish this content manually before archiving"
+- The dialog lists **which languages** the content is published in
 - Archive action is blocked
+
+The check covers every language of the site, so content published in only one language is
+blocked just the same. If the publication status cannot be read at all, the archive is
+blocked rather than allowed.
 
 **Resolution:**
 1. Click **Close** on the warning
-2. Unpublish the page first
+2. Unpublish the page in every language listed
 3. Retry archive
 
 ### Scenario 3: Already Archived Content
@@ -162,12 +167,26 @@ Each archived item stores:
 2. Or ask them to unlock the content
 3. Retry archive
 
+### Warning: "Content archived, but it could not be locked"
+
+**Problem**: The content reached the archive, but it stayed editable
+
+**Solution**: The archive itself succeeded and nothing was lost. Tell your administrator, as
+archived content is meant to be locked.
+
+### Warning: "Content restored, but it still shows as archived"
+
+**Problem**: The content is back where you wanted it, but still carries the archived marker
+
+**Solution**: Run **Restore** on it once more — the action is still available on it, and the
+second run clears the marker.
+
 ### Archive Folder Not Visible
 
 **Problem**: You can't find the archive folder
 
 **Solution**: 
-1. Check: `/[yoursite]/contents/archive`
+1. Check: `/sites/[yoursite]/Archives`
 2. If missing, try archiving any content first (creates the folder automatically)
 3. Contact administrator if issue persists
 

@@ -98,7 +98,8 @@ export const ARCHIVE_FOLDER_NAME = 'your-custom-name';
 
 ### Read-Only Enforcement
 
-Archived content uses `jmix:archived` mixin as a marker. Configure ACLs to enforce read-only:
+Archiving locks the node, and that lock is what stops it being edited in place. The
+`jmix:archived` mixin is a marker you can additionally build ACLs on:
 
 **Example ACL Rule** (apply to `jnt:archiveContentFolder`):
 
@@ -126,7 +127,8 @@ This grants read but denies write/modify/delete to editors. Administrators retai
 ### Queries
 
 #### GET_NODE_INFO
-Fetches comprehensive node information including publication status.
+Fetches node information. It does **not** carry publication status — that is per-language
+and comes from `GET_PUBLICATION_STATUS`.
 
 **Variables:**
 - `path` (String!): JCR path of the node
@@ -135,8 +137,27 @@ Fetches comprehensive node information including publication status.
 - uuid, path, name, displayName
 - primaryNodeType, mixinTypes
 - parent reference
-- publication status
 - archived flag
+
+#### GET_SITE_LANGUAGES
+Lists the languages of the site owning a node — the set a publication check must cover.
+
+**Variables:**
+- `path` (String!): JCR path of the node
+
+**Returns:**
+- the site's `j:languages` values
+
+#### GET_PUBLICATION_STATUS
+Publication status of a node in one language. Called once per site language; a failure in
+any of them blocks the archive rather than being treated as "not published".
+
+**Variables:**
+- `path` (String!): JCR path of the node
+- `language` (String!): language code (mandatory)
+
+**Returns:**
+- `aggregatedPublicationInfo.publicationStatus`
 
 #### CHECK_ARCHIVE_FOLDER
 Checks if the archive folder exists.
@@ -166,23 +187,28 @@ Creates the archive root folder.
 **Returns:**
 - uuid, path of created folder
 
-#### ADD_MIXIN
-Adds `jmix:archived` mixin to a node.
+#### SET_ARCHIVE_METADATA
+Adds the `jmix:archived` mixin **and** every property it declares mandatory, in one request.
+
+These must stay in a single mutation. Split across two requests they are two JCR saves, and a
+failure in between leaves the node carrying the mixin with none of its mandatory properties —
+a state neither the Archive action (hidden on `jmix:archived`) nor the Restore action (needs
+`originalParentId`) can undo.
 
 **Variables:**
 - `path` (String!): Node path
-- `mixins` ([String]!): Array with `["jmix:archived"]`
-
-#### SET_PROPERTIES
-Sets archive metadata properties.
-
-**Variables:**
-- `path` (String!): Node path
-- `archived` (Boolean!): true
-- `archivedAt` (String!): ISO date string
-- `archivedBy` (String!): User UUID
+- `archived` (String!): `"true"`, written as BOOLEAN
+- `archivedAt` (String!): ISO date string, written as DATE
+- `archivedBy` (String!): User UUID, written as WEAKREFERENCE
 - `originalPath` (String!): Original JCR path
 - `originalParentId` (String!): Parent UUID
+
+#### REMOVE_ARCHIVE_METADATA
+Removes the mixin and its properties together. Used to finish a restore, and to undo an
+archive that failed after the marker was applied.
+
+**Variables:**
+- `pathOrId` (String!): Node path or UUID
 
 #### MOVE_NODE
 Moves node to archive destination.
@@ -378,9 +404,11 @@ SELECT * FROM [jnt:archiveContentFolder]
 2. Custom publication workflow not detected
 
 **Resolution**:
-- Review publication status check in `isNodePublished()`
-- Add additional safeguards in backend if needed
-- Ensure `aggregatedPublicationInfo` query works correctly
+- The publication check runs per site language, in both `validateArchive()` and
+  `archiveNode()`; an unreadable status blocks rather than permits
+- A race between validation and the archive itself is still possible — the second check
+  narrows the window but does not close it
+- Enforcement lives in the browser; a backend guard is the only way to close it fully
 
 ### Issue: Name collision creates infinite loop
 
