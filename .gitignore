@@ -38,3 +38,7 @@ buildNumber.properties
 
 # Introspection dump — regenerate against a running Jahia instead of tracking a 1.4MB file
 schema.graphql
+
+# Yarn Berry artifacts — this project is pinned to yarn 1 (see packageManager)
+.yarn/
+.yarnrc.yml
