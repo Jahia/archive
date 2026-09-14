@@ -38,18 +38,11 @@ jobs:
           nexus_password: ${{ secrets.NEXUS_PASSWORD }}
           mvn_settings_filepath: '.github/maven.settings.xml'
 
-  sbom:
-    name: SBOM processing
-    needs: build
-    runs-on: ubuntu-latest
-    container:
-      image: cyclonedx/cyclonedx-cli:0.24.2
-    steps:
-      - uses: jahia/jahia-modules-action/sbom-processing@v2
-        with:
-          dependencytrack_hostname: ${{ vars.DEPENDENCYTRACK_HOSTNAME }}
-          dependencytrack_apikey: ${{ secrets.DEPENDENCYTRACK_APIKEY }}
-          sbom_artifacts: 'build-artifacts'
+# No SBOM job. The shared sbom-processing action merges `*.cdx.json` / `*bom.json`
+# into sbom-all.cdx.json and validates it, but nothing here generates a CycloneDX SBOM
+# (no cyclonedx-maven-plugin in this pom or its parent), so find matches nothing, the
+# merge writes no file and the validate step dies on it. Re-add this job once an SBOM is
+# actually produced.
 
   publish:
     name: Publish module
