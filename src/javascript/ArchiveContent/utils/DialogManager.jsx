@@ -17,10 +17,8 @@ import {
 } from '@mui/material';
 
 class DialogManager {
-    constructor() {
-        this.container = null;
-        this.root = null;
-    }
+    container = null;
+    root = null;
 
     initialize() {
         if (!this.container) {
@@ -246,11 +244,11 @@ class DialogManager {
             this.hideDialog();
 
             // Open Jahia content picker
-            window.CE_API.openPicker({
+            globalThis.CE_API.openPicker({
                 type: 'editorial',
                 initialSelectedItem: [],
-                site: window.jahiaGWTParameters?.siteKey || window.contextJsParameters?.siteKey,
-                lang: window.jahiaGWTParameters?.uilang || window.contextJsParameters?.uilang,
+                site: globalThis.jahiaGWTParameters?.siteKey || globalThis.contextJsParameters?.siteKey,
+                lang: globalThis.jahiaGWTParameters?.uilang || globalThis.contextJsParameters?.uilang,
                 isMultiple: false,
                 setValue: ([selected]) => {
                     if (selected?.path && onConfirm) {
@@ -308,9 +306,7 @@ class DialogManager {
             this.root.unmount();
         }
 
-        if (this.container && this.container.parentNode) {
-            this.container.parentNode.removeChild(this.container);
-        }
+        this.container?.remove();
 
         this.container = null;
         this.root = null;

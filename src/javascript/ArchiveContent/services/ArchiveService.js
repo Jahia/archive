@@ -42,12 +42,12 @@ class ArchiveService {
      */
     getCurrentLanguage() {
         // Try multiple sources for current language
-        if (window.contextJsParameters?.uilang) {
-            return window.contextJsParameters.uilang;
+        if (globalThis.contextJsParameters?.uilang) {
+            return globalThis.contextJsParameters.uilang;
         }
 
-        if (window.contextJsParameters?.lang) {
-            return window.contextJsParameters.lang;
+        if (globalThis.contextJsParameters?.lang) {
+            return globalThis.contextJsParameters.lang;
         }
 
         // Fallback to browser language or 'en'
@@ -325,7 +325,7 @@ class ArchiveService {
     /**
      * Main archive operation
      * @param {string} nodePath - Path of the node to archive
-     * @returns {Object} Result object with success status and details
+     * @returns {Promise<Object>} Result object with success status and details
      */
     async archiveNode(nodePath) {
         try {

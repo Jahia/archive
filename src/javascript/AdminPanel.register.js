@@ -2,7 +2,7 @@ import {registerArchiveAction, registerRestoreArchiveAction} from './ArchiveCont
 import registerArchiveManager from './ArchiveManager/registerArchiveManager';
 import i18next from 'i18next';
 
-export default async function () {
+export default async function registerArchiveExtensions() {
     await i18next.loadNamespaces('archive');
 
     registerArchiveAction();

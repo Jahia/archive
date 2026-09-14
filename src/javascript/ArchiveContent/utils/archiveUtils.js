@@ -49,7 +49,7 @@ export const extractSiteKeyFromPath = path => {
     }
 
     // Path format: /sites/<siteKey>/... or /<siteKey>/...
-    const match = path.match(/^\/(?:sites\/)?([^/]+)/);
+    const match = /^\/(?:sites\/)?([^/]+)/.exec(path);
     return match ? match[1] : null;
 };
 
@@ -114,7 +114,7 @@ export const isNodeArchived = nodeInfo => {
 export const generateUniqueName = (originalName, attempt = 1) => {
     if (attempt === 1) {
         // First attempt: add timestamp
-        const timestamp = new Date().getTime();
+        const timestamp = Date.now();
         return `${originalName}-archived-${timestamp}`;
     }
 

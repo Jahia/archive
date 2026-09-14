@@ -12,7 +12,7 @@ import {registry} from '@jahia/ui-extender';
 let ContentTable;
 try {
     // Try to get ContentTable from jContent's remote module
-    const jcontent = window.jahia?.jcontent;
+    const jcontent = globalThis.jahia?.jcontent;
     if (jcontent?.ContentTable) {
         ContentTable = jcontent.ContentTable;
     }
