@@ -45,23 +45,16 @@ export const CREATE_FOLDER = `
 `;
 
 /**
- * Mutation to add mixin to a node
+ * Mutation applying the whole archive marker in a single request: the jmix:archived
+ * mixin and every property it declares mandatory.
+ *
+ * These MUST stay in one mutation. Split across two requests they are two JCR saves,
+ * and a failure in between leaves the node carrying jmix:archived with none of its
+ * mandatory properties set — a state neither the Archive action (hidden on
+ * jmix:archived) nor the Restore action (needs originalParentId) can undo.
  */
-export const ADD_MIXIN = `
-  mutation AddMixin($path: String!, $mixins: [String]!) {
-    jcr(workspace: EDIT) {
-      mutateNode(pathOrId: $path) {
-        addMixins(mixins: $mixins)
-      }
-    }
-  }
-`;
-
-/**
- * Mutation to set properties on a node
- */
-export const SET_PROPERTIES = `
-  mutation SetProperties(
+export const SET_ARCHIVE_METADATA = `
+  mutation SetArchiveMetadata(
     $path: String!
     $archived: String!
     $archivedAt: String!
@@ -71,7 +64,8 @@ export const SET_PROPERTIES = `
   ) {
     jcr(workspace: EDIT) {
       mutateNode(pathOrId: $path) {
-        mutateProperty(name: "archived") {
+        addMixins(mixins: ["jmix:archived"])
+        archived: mutateProperty(name: "archived") {
           setValue(value: $archived, type: BOOLEAN)
         }
         archivedAt: mutateProperty(name: "archivedAt") {
@@ -86,6 +80,22 @@ export const SET_PROPERTIES = `
         originalParentId: mutateProperty(name: "originalParentId") {
           setValue(value: $originalParentId, type: STRING)
         }
+      }
+    }
+  }
+`;
+
+/**
+ * Mutation removing the archive marker.
+ *
+ * Used both to finish a restore and to compensate an archive that failed after the
+ * marker was applied — removing the mixin drops its properties with it.
+ */
+export const REMOVE_ARCHIVE_METADATA = `
+  mutation RemoveArchiveMetadata($pathOrId: String!) {
+    jcr(workspace: EDIT) {
+      mutateNode(pathOrId: $pathOrId) {
+        removeMixins(mixins: ["jmix:archived"])
       }
     }
   }

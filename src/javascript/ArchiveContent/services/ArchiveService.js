@@ -15,8 +15,8 @@ import {
 import {
     CREATE_ARCHIVE_FOLDER,
     CREATE_FOLDER,
-    ADD_MIXIN,
-    SET_PROPERTIES,
+    SET_ARCHIVE_METADATA,
+    REMOVE_ARCHIVE_METADATA,
     MOVE_NODE,
     LOCK_NODE,
     UNLOCK_NODE
@@ -42,12 +42,12 @@ class ArchiveService {
      */
     getCurrentLanguage() {
         // Try multiple sources for current language
-        if (window.contextJsParameters?.uilang) {
-            return window.contextJsParameters.uilang;
+        if (globalThis.contextJsParameters?.uilang) {
+            return globalThis.contextJsParameters.uilang;
         }
 
-        if (window.contextJsParameters?.lang) {
-            return window.contextJsParameters.lang;
+        if (globalThis.contextJsParameters?.lang) {
+            return globalThis.contextJsParameters.lang;
         }
 
         // Fallback to browser language or 'en'
@@ -63,42 +63,63 @@ class ArchiveService {
     }
 
     /**
-     * Get site languages
+     * Get site languages.
+     *
+     * Throws rather than defaulting: the publication guard is only as wide as this
+     * list, so silently narrowing it to ['en'] would let content published in any
+     * other language pass validation unseen.
      */
     async getSiteLanguages(path) {
-        try {
-            const data = await executeGraphQL(GET_SITE_LANGUAGES, {path});
-            const languages = data.jcr?.nodeByPath?.site?.languages?.values;
-            return languages || ['en'];
-        } catch (error) {
-            console.error('[ArchiveService] Error fetching site languages:', error);
-            return ['en'];
+        const data = await executeGraphQL(GET_SITE_LANGUAGES, {path});
+        const languages = data.jcr?.nodeByPath?.site?.languages?.values;
+
+        if (!languages || languages.length === 0) {
+            throw new Error(`Unable to determine the languages of the site owning ${path}`);
         }
+
+        return languages;
     }
 
     /**
-     * Check publication status for all site languages
+     * Check publication status for all site languages.
+     *
+     * Any failing language rejects the whole check. An unreadable publication status
+     * is not evidence that the content is unpublished, and treating it as such is how
+     * published content gets archived out from under the live workspace.
      */
     async getPublicationStatusForAllLanguages(path, languages) {
-        const statusChecks = await Promise.all(
+        return Promise.all(
             languages.map(async lang => {
-                try {
-                    const data = await executeGraphQL(GET_PUBLICATION_STATUS, {path, language: lang});
-                    const status = data.jcr?.nodeByPath?.aggregatedPublicationInfo?.publicationStatus;
-                    const isPublished = status === 'PUBLISHED' || status === 'MODIFIED';
-                    return {
-                        language: lang,
-                        status,
-                        isPublished
-                    };
-                } catch (error) {
-                    console.error(`[ArchiveService] Error checking ${lang}:`, error);
-                    return {language: lang, status: 'UNKNOWN', isPublished: false};
+                const data = await executeGraphQL(GET_PUBLICATION_STATUS, {path, language: lang});
+                const nodeInfo = data.jcr?.nodeByPath;
+
+                if (!nodeInfo?.aggregatedPublicationInfo) {
+                    throw new Error(`Unable to read the publication status of ${path} in ${lang}`);
                 }
+
+                return {
+                    language: lang,
+                    status: nodeInfo.aggregatedPublicationInfo.publicationStatus,
+                    isPublished: isNodePublished(nodeInfo)
+                };
             })
         );
+    }
 
-        return statusChecks;
+    /**
+     * Resolve the languages a node is currently published in.
+     *
+     * Single source of truth for "is this content published" — used by both the
+     * pre-flight validation and the archive operation itself, so the two can never
+     * disagree. Rejects if the answer cannot be established.
+     *
+     * @param {string} nodePath - Path of the node to check
+     * @returns {Promise<Array>} The published-language entries; empty when unpublished
+     */
+    async getPublishedLanguages(nodePath) {
+        const siteLanguages = await this.getSiteLanguages(nodePath);
+        const statuses = await this.getPublicationStatusForAllLanguages(nodePath, siteLanguages);
+        return statuses.filter(l => l.isPublished);
     }
 
     /**
@@ -220,29 +241,54 @@ class ArchiveService {
     }
 
     /**
-     * Add archived mixin to node
+     * Apply the archive marker — mixin and metadata — in a single request.
+     *
+     * One request is one JCR save, so the node either carries the complete marker or
+     * none of it. Adding the mixin separately from its mandatory properties can strand
+     * the node in a half-archived state that neither action can undo.
      */
-    async addArchivedMixin(path) {
-        await executeGraphQL(ADD_MIXIN, {
-            path,
-            mixins: ['jmix:archived']
-        });
-    }
-
-    /**
-     * Set archive properties on node
-     */
-    async setArchiveProperties(path, originalPath, originalParentId, userUuid) {
-        const now = formatJCRDate();
-
-        await executeGraphQL(SET_PROPERTIES, {
+    async setArchiveMetadata(path, originalPath, originalParentId, userUuid) {
+        await executeGraphQL(SET_ARCHIVE_METADATA, {
             path,
             archived: 'true',
-            archivedAt: now,
+            archivedAt: formatJCRDate(),
             archivedBy: userUuid,
             originalPath,
             originalParentId
         });
+    }
+
+    /**
+     * Remove the archive marker, dropping the mixin and its properties together.
+     */
+    async removeArchiveMetadata(pathOrId) {
+        const result = await executeGraphQL(REMOVE_ARCHIVE_METADATA, {pathOrId});
+
+        if (!result?.jcr?.mutateNode) {
+            throw new Error('Failed to remove archived mixin');
+        }
+    }
+
+    /**
+     * Undo the archive marker after a later step failed.
+     *
+     * Best-effort: the caller is already throwing the failure that triggered this, and
+     * that error is the one worth surfacing. A rollback that itself fails is logged with
+     * the path, so the half-archived node can be found and cleared by hand.
+     *
+     * @param {string} nodePath - Path the marker was applied to
+     * @param {Error} cause - The failure being compensated
+     */
+    async rollbackArchiveMetadata(nodePath, cause) {
+        try {
+            await this.removeArchiveMetadata(nodePath);
+        } catch (rollbackError) {
+            console.error(
+                `[ArchiveService] Archive of ${nodePath} failed and the archive marker could ` +
+                'not be removed — the node needs clearing by hand.',
+                {cause, rollbackError}
+            );
+        }
     }
 
     /**
@@ -260,7 +306,7 @@ class ArchiveService {
             return result.jcr?.moveNode?.node;
         } catch (error) {
             // If name collision, try with unique name
-            if (error.message.includes('already exists') || error.message.includes('collision')) {
+            if (error.message?.includes('already exists') || error.message?.includes('collision')) {
                 const uniqueName = generateUniqueName(originalName);
 
                 const result = await executeGraphQL(MOVE_NODE, {
@@ -279,7 +325,7 @@ class ArchiveService {
     /**
      * Main archive operation
      * @param {string} nodePath - Path of the node to archive
-     * @returns {Object} Result object with success status and details
+     * @returns {Promise<Object>} Result object with success status and details
      */
     async archiveNode(nodePath) {
         try {
@@ -300,12 +346,17 @@ class ArchiveService {
                 };
             }
 
-            // Step 3: Check if published
-            if (isNodePublished(nodeInfo)) {
+            // Step 3: Check if published, in every language of the site.
+            // Re-checked here rather than trusted from validateArchive: this is the
+            // write site, and it is reachable without going through the dialog.
+            const publishedLanguages = await this.getPublishedLanguages(nodePath);
+
+            if (publishedLanguages.length > 0) {
                 return {
                     success: false,
                     isPublished: true,
                     message: 'Cannot archive published content. Please unpublish first.',
+                    publishedLanguages,
                     nodeInfo
                 };
             }
@@ -345,31 +396,53 @@ class ArchiveService {
             const originalPath = nodeInfo.path;
             const originalParentId = nodeInfo.parent?.uuid;
 
-            // Step 9: Add archived mixin (before move)
-            await this.addArchivedMixin(nodePath);
+            if (!originalParentId) {
+                throw new Error('Unable to determine the current parent of the content');
+            }
 
-            // Step 10: Set archive properties (before move)
-            await this.setArchiveProperties(
+            // Step 9: Apply the archive marker — mixin and metadata in one save
+            await this.setArchiveMetadata(
                 nodePath,
                 originalPath,
                 originalParentId,
                 currentUser.node.uuid
             );
 
-            // Step 11: Move node to archive
-            const movedNode = await this.moveNode(
-                nodeInfo.uuid,
-                destinationPath,
-                nodeInfo.name
-            );
+            // Step 10: Move node to archive. On failure, take the marker back off:
+            // a node left flagged in its original location is invisible to the Archive
+            // action and useless to the Restore action.
+            let movedNode;
+            try {
+                movedNode = await this.moveNode(
+                    nodeInfo.uuid,
+                    destinationPath,
+                    nodeInfo.name
+                );
+            } catch (moveError) {
+                await this.rollbackArchiveMetadata(nodePath, moveError);
+                throw moveError;
+            }
 
-            // Step 12: Lock the node (make it read-only)
-            await executeGraphQL(LOCK_NODE, {
-                pathOrId: movedNode.path
-            });
+            // Step 11: Lock the node (make it read-only). The content is archived at
+            // this point; a failed lock is reported, never swallowed, because the
+            // read-only guarantee is the one thing that is then missing.
+            try {
+                await executeGraphQL(LOCK_NODE, {pathOrId: movedNode.path});
+            } catch (lockError) {
+                console.error('[ArchiveService] Archived content could not be locked:', lockError);
+                return {
+                    success: true,
+                    locked: false,
+                    message: 'Content archived, but it could not be locked and stays editable',
+                    originalPath,
+                    archivePath: movedNode.path,
+                    destinationPath
+                };
+            }
 
             return {
                 success: true,
+                locked: true,
                 message: 'Content archived successfully',
                 originalPath,
                 archivePath: movedNode.path,
@@ -406,27 +479,16 @@ class ArchiveService {
             }
 
             // Check publication status in all site languages
-            const siteLanguages = await this.getSiteLanguages(nodePath);
-            console.log('[ArchiveService] Site languages:', siteLanguages);
+            const publishedLanguages = await this.getPublishedLanguages(nodePath);
 
-            const publishedLanguages = await this.getPublicationStatusForAllLanguages(nodePath, siteLanguages);
-            console.log('[ArchiveService] All publication status:', publishedLanguages);
-
-            const hasPublishedContent = publishedLanguages.some(l => l.isPublished);
-            console.log('[ArchiveService] Has published content:', hasPublishedContent);
-
-            if (hasPublishedContent) {
-                const publishedLangList = publishedLanguages.filter(l => l.isPublished);
-                console.log('[ArchiveService] Published languages list:', publishedLangList);
-                const result = {
+            if (publishedLanguages.length > 0) {
+                return {
                     canArchive: false,
                     reason: 'published',
                     message: 'Content is published and must be unpublished first',
                     nodeInfo,
-                    publishedLanguages: publishedLangList
+                    publishedLanguages
                 };
-                console.log('[ArchiveService] Returning validation result:', result);
-                return result;
             }
 
             // Get preview of destination
@@ -537,6 +599,28 @@ class ArchiveService {
     }
 
     /**
+     * Re-lock an archived node after a restore failed past the unlock step.
+     *
+     * Best-effort, for the same reason as {@link rollbackArchiveMetadata}: the restore
+     * failure is the error the caller reports. A failed re-lock is logged with the path
+     * because the content is then sitting in the archive and editable.
+     *
+     * @param {string} nodePath - Path of the node still in the archive
+     * @param {Error} cause - The restore failure being compensated
+     */
+    async relockAfterFailedRestore(nodePath, cause) {
+        try {
+            await executeGraphQL(LOCK_NODE, {pathOrId: nodePath});
+        } catch (relockError) {
+            console.error(
+                `[ArchiveService] Restore of ${nodePath} failed and the node could not be ` +
+                're-locked — it stays in the archive and is editable.',
+                {cause, relockError}
+            );
+        }
+    }
+
+    /**
      * Restore archived node to original or new location
      * @param {string} nodePath - Path to archived node
      * @param {string} targetParentPath - Path to parent where node should be restored
@@ -570,50 +654,50 @@ class ArchiveService {
                 finalName = generateUniqueName(node.name);
             }
 
-            // Step 4: Unlock the node before restoring
-            console.log('[ArchiveService] Unlocking node...');
-            await executeGraphQL(UNLOCK_NODE, {
-                pathOrId: nodePath
-            });
+            // Step 4: Unlock the node — a locked node cannot be moved out of the archive
+            await executeGraphQL(UNLOCK_NODE, {pathOrId: nodePath});
 
-            // Step 5: Move node to target location
-            console.log('[ArchiveService] Moving node...');
-            const moveResult = await executeGraphQL(MOVE_NODE, {
-                pathOrId: nodePath,
-                destParentPathOrId: targetParentPath,
-                destName: finalName
-            });
-
-            console.log('[ArchiveService] Move result:', JSON.stringify(moveResult, null, 2));
+            // Step 5: Move node to target location. If the move fails the content is
+            // still in the archive, so put the lock back: leaving it unlocked there
+            // silently drops the read-only guarantee while the toast reports a failure.
+            let moveResult;
+            try {
+                moveResult = await executeGraphQL(MOVE_NODE, {
+                    pathOrId: nodePath,
+                    destParentPathOrId: targetParentPath,
+                    destName: finalName
+                });
+            } catch (moveError) {
+                await this.relockAfterFailedRestore(nodePath, moveError);
+                throw moveError;
+            }
 
             if (!moveResult?.jcr?.moveNode?.node) {
-                console.error('[ArchiveService] Move result structure unexpected:', moveResult);
-                throw new Error('Failed to move node');
+                const error = new Error('Failed to move node');
+                await this.relockAfterFailedRestore(nodePath, error);
+                throw error;
             }
 
             const movedNodePath = moveResult.jcr.moveNode.node.path;
-            console.log('[ArchiveService] Node moved to:', movedNodePath);
 
-            // Step 6: Remove jmix:archived mixin (properties will be automatically removed)
-            console.log('[ArchiveService] Removing archived mixin...');
-            const removeMixinResult = await executeGraphQL(`
-                mutation RemoveMixin($pathOrId: String!) {
-                    jcr(workspace: EDIT) {
-                        mutateNode(pathOrId: $pathOrId) {
-                            removeMixins(mixins: ["jmix:archived"])
-                        }
-                    }
-                }
-            `, {pathOrId: movedNodePath});
-
-            if (!removeMixinResult?.jcr?.mutateNode) {
-                throw new Error('Failed to remove archived mixin');
+            // Step 6: Remove jmix:archived mixin (properties go with it). The content is
+            // already back in place; if this fails it still shows as archived, and the
+            // Restore action stays available on it so the operation can be retried.
+            try {
+                await this.removeArchiveMetadata(movedNodePath);
+            } catch (mixinError) {
+                console.error('[ArchiveService] Restored content still carries the archive marker:', mixinError);
+                return {
+                    success: true,
+                    markerRemoved: false,
+                    destinationPath: movedNodePath,
+                    message: 'Content restored, but it still shows as archived — retry the restore'
+                };
             }
-
-            console.log('[ArchiveService] Archived mixin removed successfully');
 
             return {
                 success: true,
+                markerRemoved: true,
                 destinationPath: movedNodePath,
                 message: 'Content restored successfully'
             };

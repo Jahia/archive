@@ -49,12 +49,18 @@ export const extractSiteKeyFromPath = path => {
     }
 
     // Path format: /sites/<siteKey>/... or /<siteKey>/...
-    const match = path.match(/^\/(?:sites\/)?([^/]+)/);
+    const match = /^\/(?:sites\/)?([^/]+)/.exec(path);
     return match ? match[1] : null;
 };
 
 /**
- * Check if a node is published
+ * Check if a node is published, for one language.
+ *
+ * Reads `aggregatedPublicationInfo.publicationStatus` and falls back to an
+ * `isPublished` property alias. A caller passing a node fetched without either
+ * field gets `false` for every node — query `aggregatedPublicationInfo(language: …)`
+ * (it takes a mandatory `language` argument) before relying on this.
+ *
  * @param {Object} nodeInfo - Node information from GraphQL query
  * @returns {boolean} True if node is published
  */
@@ -108,7 +114,7 @@ export const isNodeArchived = nodeInfo => {
 export const generateUniqueName = (originalName, attempt = 1) => {
     if (attempt === 1) {
         // First attempt: add timestamp
-        const timestamp = new Date().getTime();
+        const timestamp = Date.now();
         return `${originalName}-archived-${timestamp}`;
     }
 

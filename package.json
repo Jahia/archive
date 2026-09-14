@@ -1,6 +1,7 @@
 {
   "name": "archive",
   "version": "1.1.2",
+  "packageManager": "yarn@1.22.22",
   "scripts": {
     "test": "env-cmd --no-override jest",
     "testcli": "jest",

@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 import dayjs from 'dayjs';
 import {useTranslation} from 'react-i18next';
 import {registry} from '@jahia/ui-extender';
@@ -9,6 +10,12 @@ import {ArchivedNodesQueryHandler} from './ArchivedNodesQueryHandler';
 const ArchiveHeader = ({column}) => {
     const {t} = useTranslation('archive');
     return <Typography weight="bold">{t(column.label)}</Typography>;
+};
+
+ArchiveHeader.propTypes = {
+    column: PropTypes.shape({
+        label: PropTypes.string
+    }).isRequired
 };
 
 const archiveCell = ({body, title, cell, column, row}) => (
@@ -76,7 +83,7 @@ const archivedByColumn = {
 };
 
 const registerArchiveManagerComponents = () => {
-    window.jahia.i18n.loadNamespaces('archive');
+    globalThis.jahia.i18n.loadNamespaces('archive');
 
     const renderDefaultContentTrees = registry.get('accordionItem', 'renderDefaultContentTrees');
 

@@ -16,8 +16,8 @@ import {useNodeChecks} from '@jahia/data-helper';
  * Show notification to user
  */
 const showNotification = (message, variant = 'info') => {
-    if (window.jahia?.toastDispatcher) {
-        window.jahia.toastDispatcher.add({
+    if (globalThis.jahia?.toastDispatcher) {
+        globalThis.jahia.toastDispatcher.add({
             message,
             variant
         });
@@ -43,7 +43,7 @@ export const ArchiveContentAction = ({path, render: Render, ...otherProps}) => {
     // Get triggerRefetchAll from jContent if available
     const triggerRefetchAll = React.useMemo(() => {
         try {
-            const jcontentRefetches = window.jahia?.jcontent?.refetches;
+            const jcontentRefetches = globalThis.jahia?.jcontent?.refetches;
             return jcontentRefetches?.triggerRefetchAll || (() => {});
         } catch {
             return () => {};
@@ -93,7 +93,12 @@ export const ArchiveContentAction = ({path, render: Render, ...otherProps}) => {
             const result = await ArchiveService.archiveNode(path);
 
             if (result.success) {
-                showNotification(`Content archived successfully to ${result.destinationPath}`, 'success');
+                // A false `locked` flag means the content is archived but stayed
+                // editable — a success the user still needs to know about.
+                showNotification(
+                    `${result.message} (${result.destinationPath})`,
+                    result.locked === false ? 'warning' : 'success'
+                );
 
                 // Clear Apollo cache for both paths
                 try {

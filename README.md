@@ -102,44 +102,70 @@ Mixin applied to archived content nodes.
 1. **Validation Phase**
    - Fetch node information via GraphQL
    - Check if already archived → show "Already Archived" dialog
-   - Check if published → show "Cannot Archive" warning
+   - Check publication status in **every language of the site** → show "Cannot Archive" warning if the content is published in any of them
    - Preview destination path in confirmation dialog
+
+   If the publication status cannot be read — the site languages are unavailable, or a
+   language check fails — validation **blocks** the archive rather than assuming the
+   content is unpublished.
 
 2. **Preparation Phase** (if validation passes)
    - Resolve site key from node path
-   - Check if archive folder exists at `/<siteKey>/Archives`
+   - Check if archive folder exists at `/sites/<siteKey>/Archives`
    - Create archive folder if missing (transparent, first-run only)
    - Ensure date folders (YYYY/MM) exist, create if needed
 
 3. **Archive Operation**
-   - Add `jmix:archived` mixin to the node
-   - Set archive properties (archived, archivedAt, archivedBy, originalPath, originalParentId)
-   - Move node to `/<siteKey>/Archives/<YYYY>/<MM>/`
+   - Re-check the publication status, because this step is reachable without the dialog
+   - Apply the `jmix:archived` mixin **and** its properties (archived, archivedAt, archivedBy, originalPath, originalParentId) in a **single request**, so the node either carries the complete marker or none of it
+   - Move node to `/sites/<siteKey>/Archives/<YYYY>/<MM>/`
    - Handle name collisions by appending `-archived-<timestamp>` suffix
+   - Lock the node so it is no longer editable in place
 
 4. **Completion**
    - Show success notification with archive path
    - Optionally refresh content view
 
+### Partial outcomes
+
+Each step after the marker is its own request, so the flow reports what actually happened
+rather than assuming it all landed:
+
+- **Move fails** → the archive marker is removed again, and the operation reports the failure.
+  The content stays exactly where it was.
+- **Lock fails** → the content *is* archived, and a warning says it stayed editable.
+- **Restore fails after unlocking** → the content is re-locked in the archive.
+- **Restore leaves the marker** → the content is back in place with a warning that it still
+  shows as archived; running Restore again clears it.
+
 ## Read-Only Enforcement
 
-Archived content becomes effectively read-only through:
+Archived content becomes read-only through:
 
-1. **Archive Folder Configuration**
+1. **JCR Lock**
+   - Archiving locks the node, which is what actually stops it being edited in place
+   - Restoring unlocks it again; a restore that fails after unlocking re-locks it
+   - A lock that cannot be applied is reported as a warning, never silently skipped
+
+2. **Archive Folder Configuration**
    - `jmix:nolive` prevents publication
    - Typical content editors don't have direct access to archive folder
 
-2. **Mixin Marker**
+3. **Mixin Marker**
    - `jmix:archived` can be used in Jahia permissions/rules to deny write
    - Administrators retain full access if needed
 
-**Note:** True read-only enforcement depends on site-specific permission configuration. The mixin provides a marker for permission rules. In a production environment, configure role-based ACLs to deny write access to archived content for non-admin roles.
+**Note:** the lock is the enforcement; the mixin is a marker for your own permission rules.
+For defence in depth, configure role-based ACLs denying write on `jmix:archived` content for
+non-admin roles — the module does not ship those ACLs.
 
 ## GraphQL Operations
 
 ### Key Queries
 
-- `GET_NODE_INFO` - Fetch node details, publication status, existing mixins
+- `GET_NODE_INFO` - Fetch node details and existing mixins (it does **not** carry publication status; use `GET_PUBLICATION_STATUS`)
+- `GET_SITE_LANGUAGES` - List the languages a publication check must cover
+- `GET_PUBLICATION_STATUS` - Publication status of a node, per language
 - `CHECK_ARCHIVE_FOLDER` - Verify archive folder existence
 - `GET_CURRENT_USER` - Get current user reference for metadata
 - `GET_SITE_INFO` - Resolve site key from node path
@@ -148,9 +174,10 @@ Archived content becomes effectively read-only through:
 
 - `CREATE_ARCHIVE_FOLDER` - Create archive root folder
 - `CREATE_FOLDER` - Create intermediate date folders
-- `ADD_MIXIN` - Add `jmix:archived` mixin
-- `SET_PROPERTIES` - Set archive metadata properties
+- `SET_ARCHIVE_METADATA` - Add the `jmix:archived` mixin and all of its properties in one request
+- `REMOVE_ARCHIVE_METADATA` - Remove the mixin and its properties, to finish a restore or to undo a failed archive
 - `MOVE_NODE` - Move node to archive destination
+- `LOCK_NODE` / `UNLOCK_NODE` - Apply and lift the read-only lock
 
 ## Error Handling
 
@@ -237,13 +264,17 @@ If content is already archived:
 
 ### Archive Folder Name
 
-Default: `archive`
+Default: `Archives`, giving an archive root of `/sites/<siteKey>/Archives`.
 
-To customize, edit `ARCHIVE_FOLDER_NAME` in [archiveUtils.js](src/javascript/ArchiveContent/utils/archiveUtils.js#L6):
+To customize, edit `ARCHIVE_FOLDER_NAME` in [archiveUtils.js](src/javascript/ArchiveContent/utils/archiveUtils.js#L8):
 
 ```javascript
-export const ARCHIVE_FOLDER_NAME = 'archive'; // Change to your preference
+export const ARCHIVE_FOLDER_NAME = 'Archives'; // Change to your preference
 ```
+
+The name is also spelled out in two other places that must be changed with it: the Archive
+Manager's `rootPath` in [registerArchiveManager.jsx](src/javascript/ArchiveManager/registerArchiveManager.jsx),
+and the `hideForPaths` rule in [ArchiveContentAction.jsx](src/javascript/ArchiveContent/components/ArchiveContentAction.jsx).
 
 ### Required Permissions
 
@@ -256,7 +287,7 @@ The module defines three custom permissions:
 
 #### unarchiveContent
 - **Purpose**: Allows restoration of archived content
-- **Required for**: Unarchive operations (if implemented)
+- **Required for**: the Restore action on archived content
 - **Default roles**: editor-in-chief, site-administrator
 
 #### manageArchive
@@ -266,7 +297,7 @@ The module defines three custom permissions:
 
 **Additional JCR permissions needed:**
 - `jcr:write` permission on the content node
-- `jcr:addChildNodes` on `/<siteKey>/` (for first-run folder creation)
+- `jcr:addChildNodes` on `/sites/<siteKey>/` (for first-run folder creation)
 
 ### Roles
 
