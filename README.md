@@ -137,9 +137,17 @@ year and month folders, and two at once would race to create them.
 
 ### Archiving a content folder
 
-The folder moves with everything it holds and is locked. Jahia locks are not deep: the content
-inside an archived folder is not locked item by item, and the dialog says so. The Archive Manager
-lets editors open an archived folder and browse, preview and edit what it holds.
+The folder moves with everything it holds. Each **item** inside it gets its own archive marker and
+lock, in the same request as the folder: every content folder inside it and every content directly
+in a folder (an article's own sub-content goes and comes back with its article). In the Archive
+Manager each item shows its original location, archive date and archiving user, and can be
+**restored on its own**.
+
+Restoring one item: its original folder is in the archive, so it goes back to the path it had. When
+that folder no longer exists, the missing content folders are created again (the dialog lists
+them); outside the site's content folders the editor picks a location. Restoring the whole folder
+unlocks and unmarks everything inside it; if a folder of the same name was created again meanwhile,
+the restored one takes a `-restored-<timestamp>` suffix.
 
 ### Partial outcomes
 
@@ -189,10 +197,11 @@ non-admin roles - the module does not ship those ACLs.
 
 - `CREATE_ARCHIVE_FOLDER` - Create archive root folder
 - `CREATE_FOLDER` - Create intermediate date folders
-- `SET_ARCHIVE_METADATA` - Add the `jmix:archived` mixin and all of its properties in one request
-- `REMOVE_ARCHIVE_METADATA` - Remove the mixin and its properties, to finish a restore or to undo a failed archive
+- `buildSetArchiveMetadataMutation(n)` - Add the `jmix:archived` mixin and all of its properties to n nodes (an archived folder and its items) in one request
+- `buildRemoveArchiveMetadataMutation(n)` - Remove the mixin and its properties from n nodes, to finish a restore or to undo a failed archive
+- `CREATE_CONTENT_FOLDER` - Create again a content folder a restore puts content back into
 - `MOVE_NODE` - Move node to archive destination
-- `LOCK_NODE` / `UNLOCK_NODE` - Apply and lift the read-only lock
+- `buildLockMutation(n, lock)` - Apply and lift the read-only lock on n nodes
 
 ## Error Handling
 
@@ -428,7 +437,7 @@ setCustomProperty: setProperty(
 ## Known Limitations
 
 1. **Restore one at a time**: archive takes a multiple selection, restore takes one item (each goes back to its own location)
-2. **Archived folders are locked, not their content**: Jahia locks are not deep
+2. **Two folders after a partial restore**: restoring an item first recreates its folder, so the archived folder restored later comes back next to it, with a `-restored-` suffix, rather than merged into it
 3. **Manual Unpublish**: Published content must be manually unpublished
 4. **Permission Configuration**: archived content is locked, which is what makes it
    read-only. Denying write on `jmix:archived` via role ACLs is an optional extra layer

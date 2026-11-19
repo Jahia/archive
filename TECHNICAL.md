@@ -193,28 +193,40 @@ Creates the archive root folder.
 **Returns:**
 - uuid, path of created folder
 
-#### SET_ARCHIVE_METADATA
-Adds the `jmix:archived` mixin **and** every property it declares mandatory, in one request.
+#### buildSetArchiveMetadataMutation(n)
+Adds the `jmix:archived` mixin **and** every property it declares mandatory to n nodes, in one
+request: one `mutateNode` alias per node (`n0`, `n1`...), addressed by uuid. For a content folder the
+set is the folder and its items: every content folder inside it and every node directly in one of
+them (`ArchiveService.getFolderItems`), each with its own `originalPath` and `originalParentId`. The
+locks (`buildLockMutation`) and the rollback (`buildRemoveArchiveMetadataMutation`) take the same set.
 
 These must stay in a single mutation. Split across two requests they are two JCR saves, and a
 failure in between leaves the node carrying the mixin with none of its mandatory properties -
 a state neither the Archive action (hidden on `jmix:archived`) nor the Restore action (needs
 `originalParentId`) can undo.
 
-**Variables:**
-- `path` (String!): Node path
+**Variables:** shared, then `<name><i>` per node
+- `id<i>` (String!): Node uuid
 - `archived` (String!): `"true"`, written as BOOLEAN
 - `archivedAt` (String!): ISO date string, written as DATE
 - `archivedBy` (String!): User UUID, written as WEAKREFERENCE
 - `originalPath` (String!): Original JCR path
 - `originalParentId` (String!): Parent UUID
 
-#### REMOVE_ARCHIVE_METADATA
-Removes the mixin and its properties together. Used to finish a restore, and to undo an
-archive that failed after the marker was applied.
+#### buildRemoveArchiveMetadataMutation(n)
+Removes the mixin and its properties together from n nodes. Used to finish a restore (the node and
+every archived item inside it, `ArchiveService.getArchivedSubtree`), and to undo an archive that
+failed after the marker was applied.
 
 **Variables:**
-- `pathOrId` (String!): Node path or UUID
+- `id<i>` (String!): Node uuid
+
+#### Restore target
+`ArchiveService.resolveRestoreTarget`: the original parent, found by `originalParentId`, when it
+still exists outside the archive; otherwise the parent of `originalPath` (an item of an archived
+folder, whose folder is in the archive). If that path is gone and lies under the site's `contents`,
+the missing content folders are listed and created first (`CREATE_CONTENT_FOLDER`); elsewhere the
+editor picks a location.
 
 #### MOVE_NODE
 Moves node to archive destination.

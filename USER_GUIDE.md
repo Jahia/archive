@@ -133,8 +133,9 @@ Each archived item stores:
 2. Right-click the folder → Archive Content
 3. Confirm
 
-**Result**: The folder moves to the archive with everything it contains. The folder is locked; the
-articles inside it are not locked one by one. In the Archive Manager, open the folder to find them.
+**Result**: The folder moves to the archive with everything it contains, and each article in it is
+archived and locked too. In the Archive Manager, open the folder: each article shows where it came
+from, and can be restored on its own. If its folder no longer exists, it is created again.
 
 ### Scenario 2: Try to Archive Published Page
 
