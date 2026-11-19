@@ -8,8 +8,7 @@ import {
     GET_CURRENT_USER,
     CHECK_PATH_EXISTS,
     GET_SITE_INFO,
-    GET_SITE_LANGUAGES,
-    GET_PUBLICATION_STATUS
+    GET_SITE_LANGUAGES
 } from '../graphql/queries';
 
 import {
@@ -30,7 +29,8 @@ import {
     generateUniqueName,
     formatJCRDate,
     executeGraphQL,
-    executeGraphQLSilent
+    executeGraphQLSilent,
+    getJContentContext
 } from '../utils/archiveUtils';
 
 /**
@@ -58,7 +58,8 @@ class ArchiveService {
      * Get node information
      */
     async getNodeInfo(path) {
-        const data = await executeGraphQL(GET_NODE_INFO, {path});
+        // The title of i18n content needs a language: without one, displayName falls back to the node name
+        const data = await executeGraphQL(GET_NODE_INFO, {path, language: getJContentContext().language});
         return data.jcr?.nodeByPath;
     }
 
@@ -81,45 +82,67 @@ class ArchiveService {
     }
 
     /**
-     * Check publication status for all site languages.
+     * Resolve the languages in which a node, or anything under it, is live.
      *
-     * Any failing language rejects the whole check. An unreadable publication status
-     * is not evidence that the content is unpublished, and treating it as such is how
-     * published content gets archived out from under the live workspace.
+     * Single source of truth for "is this content published": used by both the pre-flight validation
+     * and the archive operation itself, so the two can never disagree.
+     *
+     * Reads each node's own status across the subtree, in one query. jContent's aggregated status
+     * (`subNodes: true`) answers what remains to publish, so an unpublished child outweighs a
+     * published one: a folder holding one published and one draft item reads NOT_PUBLISHED, and
+     * archiving it would take the published item out from under the live workspace.
+     *
+     * Rejects if the answer cannot be established: a missing status is not evidence that the content
+     * is unpublished.
+     *
+     * @param {string} nodePath - Path of the node to check
+     * @returns {Promise<Array<{language: string, isPublished: boolean}>>} The languages with live
+     *   content in the subtree; empty when nothing is live
      */
-    async getPublicationStatusForAllLanguages(path, languages) {
-        return Promise.all(
-            languages.map(async lang => {
-                const data = await executeGraphQL(GET_PUBLICATION_STATUS, {path, language: lang});
-                const nodeInfo = data.jcr?.nodeByPath;
+    async getPublishedLanguages(nodePath) {
+        const languages = await this.getSiteLanguages(nodePath);
+        const statusFields = languages
+            .map((_, i) => `l${i}: aggregatedPublicationInfo(language: $l${i}, subNodes: false, references: false) { publicationStatus }`)
+            .join('\n');
+        const query = `
+            query ArchivePublicationOfSubtree($path: String!, ${languages.map((_, i) => `$l${i}: String!`).join(', ')}) {
+                jcr(workspace: EDIT) {
+                    nodeByPath(path: $path) {
+                        ${statusFields}
+                        descendants(typesFilter: {types: ["jnt:content", "jnt:contentFolder", "jnt:page"], multi: ANY}) {
+                            nodes {
+                                ${statusFields}
+                            }
+                        }
+                    }
+                }
+            }
+        `;
+        const variables = {path: nodePath};
+        languages.forEach((language, i) => {
+            variables[`l${i}`] = language;
+        });
 
-                if (!nodeInfo?.aggregatedPublicationInfo) {
-                    throw new Error(`Unable to read the publication status of ${path} in ${lang}`);
+        const data = await executeGraphQL(query, variables);
+        const node = data.jcr?.nodeByPath;
+        if (!node) {
+            throw new Error(`Unable to read the publication status of ${nodePath}`);
+        }
+
+        const nodes = [node, ...(node.descendants?.nodes || [])];
+        return languages
+            .map((language, i) => {
+                const statuses = nodes.map(n => n[`l${i}`]?.publicationStatus);
+                if (statuses.some(status => !status)) {
+                    throw new Error(`Unable to read the publication status of ${nodePath} in ${language}`);
                 }
 
                 return {
-                    language: lang,
-                    status: nodeInfo.aggregatedPublicationInfo.publicationStatus,
-                    isPublished: isNodePublished(nodeInfo)
+                    language,
+                    isPublished: statuses.some(status => isNodePublished({aggregatedPublicationInfo: {publicationStatus: status}}))
                 };
             })
-        );
-    }
-
-    /**
-     * Resolve the languages a node is currently published in.
-     *
-     * Single source of truth for "is this content published" — used by both the
-     * pre-flight validation and the archive operation itself, so the two can never
-     * disagree. Rejects if the answer cannot be established.
-     *
-     * @param {string} nodePath - Path of the node to check
-     * @returns {Promise<Array>} The published-language entries; empty when unpublished
-     */
-    async getPublishedLanguages(nodePath) {
-        const siteLanguages = await this.getSiteLanguages(nodePath);
-        const statuses = await this.getPublicationStatusForAllLanguages(nodePath, siteLanguages);
-        return statuses.filter(l => l.isPublished);
+            .filter(entry => entry.isPublished);
     }
 
     /**
@@ -241,7 +264,7 @@ class ArchiveService {
     }
 
     /**
-     * Apply the archive marker — mixin and metadata — in a single request.
+     * Apply the archive marker - mixin and metadata - in a single request.
      *
      * One request is one JCR save, so the node either carries the complete marker or
      * none of it. Adding the mixin separately from its mandatory properties can strand
@@ -285,7 +308,7 @@ class ArchiveService {
         } catch (rollbackError) {
             console.error(
                 `[ArchiveService] Archive of ${nodePath} failed and the archive marker could ` +
-                'not be removed — the node needs clearing by hand.',
+                'not be removed - the node needs clearing by hand.',
                 {cause, rollbackError}
             );
         }
@@ -340,8 +363,7 @@ class ArchiveService {
             if (isNodeArchived(nodeInfo)) {
                 return {
                     success: false,
-                    alreadyArchived: true,
-                    message: 'This content is already archived',
+                    reason: 'alreadyArchived',
                     nodeInfo
                 };
             }
@@ -354,8 +376,7 @@ class ArchiveService {
             if (publishedLanguages.length > 0) {
                 return {
                     success: false,
-                    isPublished: true,
-                    message: 'Cannot archive published content. Please unpublish first.',
+                    reason: 'published',
                     publishedLanguages,
                     nodeInfo
                 };
@@ -400,7 +421,7 @@ class ArchiveService {
                 throw new Error('Unable to determine the current parent of the content');
             }
 
-            // Step 9: Apply the archive marker — mixin and metadata in one save
+            // Step 9: Apply the archive marker - mixin and metadata in one save
             await this.setArchiveMetadata(
                 nodePath,
                 originalPath,
@@ -433,7 +454,6 @@ class ArchiveService {
                 return {
                     success: true,
                     locked: false,
-                    message: 'Content archived, but it could not be locked and stays editable',
                     originalPath,
                     archivePath: movedNode.path,
                     destinationPath
@@ -443,7 +463,6 @@ class ArchiveService {
             return {
                 success: true,
                 locked: true,
-                message: 'Content archived successfully',
                 originalPath,
                 archivePath: movedNode.path,
                 destinationPath
@@ -452,6 +471,46 @@ class ArchiveService {
             console.error('[ArchiveService] Archive operation failed:', error);
             throw error;
         }
+    }
+
+    /**
+     * Archive several nodes, one after the other.
+     *
+     * Sequential on purpose: each archive may create the year and month folders, and two archives
+     * running at once would both try to create them. A failure on one node does not stop the others;
+     * each outcome is reported.
+     *
+     * @param {string[]} nodePaths - Paths of the nodes to archive
+     * @param {Function} [onProgress] - Called with (done, total) after each node
+     * @returns {Promise<{archived: Object[], notLocked: Object[], refused: Object[], failed: Object[]}>}
+     *   `archived` holds every node now in the archive (`notLocked` the ones of them that stayed
+     *   editable), `refused` the nodes the checks turned down (with their `reason`), `failed` the ones
+     *   whose archive threw (with the `error`)
+     */
+    async archiveNodes(nodePaths, onProgress) {
+        const outcome = {archived: [], notLocked: [], refused: [], failed: []};
+
+        for (const [index, nodePath] of nodePaths.entries()) {
+            try {
+                // Sequential on purpose: two archives at once would race to create the date folders
+                // eslint-disable-next-line no-await-in-loop
+                const result = await this.archiveNode(nodePath);
+                if (result.success) {
+                    outcome.archived.push({path: nodePath, ...result});
+                    if (result.locked === false) {
+                        outcome.notLocked.push({path: nodePath, ...result});
+                    }
+                } else {
+                    outcome.refused.push({path: nodePath, ...result});
+                }
+            } catch (error) {
+                outcome.failed.push({path: nodePath, error});
+            }
+
+            onProgress?.(index + 1, nodePaths.length);
+        }
+
+        return outcome;
     }
 
     /**
@@ -464,8 +523,7 @@ class ArchiveService {
             if (!nodeInfo) {
                 return {
                     canArchive: false,
-                    reason: 'notFound',
-                    message: 'Content not found'
+                    reason: 'notFound'
                 };
             }
 
@@ -473,7 +531,6 @@ class ArchiveService {
                 return {
                     canArchive: false,
                     reason: 'alreadyArchived',
-                    message: 'Content is already archived',
                     nodeInfo
                 };
             }
@@ -485,7 +542,6 @@ class ArchiveService {
                 return {
                     canArchive: false,
                     reason: 'published',
-                    message: 'Content is published and must be unpublished first',
                     nodeInfo,
                     publishedLanguages
                 };
@@ -506,7 +562,7 @@ class ArchiveService {
             return {
                 canArchive: false,
                 reason: 'error',
-                message: error.message || 'Validation failed'
+                error
             };
         }
     }
@@ -522,11 +578,11 @@ class ArchiveService {
             const query = `
                 ${FRAGMENTS}
                 
-                query GetArchivedNodeInfo($path: String!) {
+                query GetArchivedNodeInfo($path: String!, $language: String) {
                     jcr(workspace: EDIT) {
                         nodeByPath(path: $path) {
                             ...CoreNodeFields
-                            displayName
+                            displayName(language: $language)
                             properties {
                                 name
                                 value
@@ -536,7 +592,7 @@ class ArchiveService {
                 }
             `;
 
-            const result = await executeGraphQL(query, {path: nodePath});
+            const result = await executeGraphQL(query, {path: nodePath, language: getJContentContext().language});
             // ExecuteGraphQL returns result.data, so we access jcr directly
             const node = result?.jcr?.nodeByPath;
 
@@ -614,7 +670,7 @@ class ArchiveService {
         } catch (relockError) {
             console.error(
                 `[ArchiveService] Restore of ${nodePath} failed and the node could not be ` +
-                're-locked — it stays in the archive and is editable.',
+                're-locked - it stays in the archive and is editable.',
                 {cause, relockError}
             );
         }
@@ -654,7 +710,7 @@ class ArchiveService {
                 finalName = generateUniqueName(node.name);
             }
 
-            // Step 4: Unlock the node — a locked node cannot be moved out of the archive
+            // Step 4: Unlock the node - a locked node cannot be moved out of the archive
             await executeGraphQL(UNLOCK_NODE, {pathOrId: nodePath});
 
             // Step 5: Move node to target location. If the move fails the content is
@@ -690,22 +746,20 @@ class ArchiveService {
                 return {
                     success: true,
                     markerRemoved: false,
-                    destinationPath: movedNodePath,
-                    message: 'Content restored, but it still shows as archived — retry the restore'
+                    destinationPath: movedNodePath
                 };
             }
 
             return {
                 success: true,
                 markerRemoved: true,
-                destinationPath: movedNodePath,
-                message: 'Content restored successfully'
+                destinationPath: movedNodePath
             };
         } catch (error) {
             console.error('[ArchiveService] Restore failed:', error);
             return {
                 success: false,
-                message: error.message || 'Failed to restore content'
+                error
             };
         }
     }

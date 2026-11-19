@@ -33,13 +33,9 @@
     }
   },
   "dependencies": {
-    "@emotion/react": "^11.11.0",
-    "@emotion/styled": "^11.11.0",
     "@jahia/data-helper": "~1.0.12",
     "@jahia/moonstone": "^2.17.3",
     "@jahia/ui-extender": "^1.1.1",
-    "@mui/material": "^5.15.0",
-    "dayjs": "^1.10.6",
     "graphql": "^16.10.0",
     "graphql-tag": "^2.12.6",
     "i18next": "^20.6.1",

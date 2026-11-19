@@ -1,0 +1,36 @@
+// Layout only: every widget is Moonstone's. The modal is portaled to <body>, outside the theme
+// scope, so each var() carries a literal fallback.
+
+.dialog {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-medium, 16px);
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-small, 8px);
+}
+
+.list {
+    margin: 0;
+    padding-left: var(--spacing-large, 24px);
+}
+
+.path {
+    font-family: monospace;
+    overflow-wrap: anywhere;
+}
+
+.waiting {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-medium, 16px);
+}

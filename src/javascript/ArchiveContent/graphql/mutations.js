@@ -50,7 +50,7 @@ export const CREATE_FOLDER = `
  *
  * These MUST stay in one mutation. Split across two requests they are two JCR saves,
  * and a failure in between leaves the node carrying jmix:archived with none of its
- * mandatory properties set — a state neither the Archive action (hidden on
+ * mandatory properties set - a state neither the Archive action (hidden on
  * jmix:archived) nor the Restore action (needs originalParentId) can undo.
  */
 export const SET_ARCHIVE_METADATA = `
@@ -89,7 +89,7 @@ export const SET_ARCHIVE_METADATA = `
  * Mutation removing the archive marker.
  *
  * Used both to finish a restore and to compensate an archive that failed after the
- * marker was applied — removing the mixin drops its properties with it.
+ * marker was applied - removing the mixin drops its properties with it.
  */
 export const REMOVE_ARCHIVE_METADATA = `
   mutation RemoveArchiveMetadata($pathOrId: String!) {

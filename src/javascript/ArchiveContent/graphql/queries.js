@@ -33,11 +33,11 @@ export const FRAGMENTS = `
 export const GET_NODE_INFO = `
   ${FRAGMENTS}
   
-  query GetNodeInfo($path: String!) {
+  query GetNodeInfo($path: String!, $language: String) {
     jcr(workspace: EDIT) {
       nodeByPath(path: $path) {
         ...CoreNodeFields
-        displayName
+        displayName(language: $language)
         parent {
           ...SimpleCoreNodeFields
         }
@@ -69,21 +69,6 @@ export const GET_SITE_LANGUAGES = `
           languages: property(name: "j:languages") {
             values
           }
-        }
-      }
-    }
-  }
-`;
-
-/**
- * Query to check publication status for a specific language
- */
-export const GET_PUBLICATION_STATUS = `
-  query GetPublicationStatus($path: String!, $language: String!) {
-    jcr(workspace: EDIT) {
-      nodeByPath(path: $path) {
-        aggregatedPublicationInfo(language: $language) {
-          publicationStatus
         }
       }
     }
