@@ -72,7 +72,9 @@ The content is now:
 1. Open **jContent**
 2. Click **Archive Manager** in the left menu
 3. Browse by year and month; open an archived folder to see what it holds
-4. Columns: name, type, **creation date**, original location, archive date, who archived it
+4. Columns: name, type, **creation date**, original location, archive date, who archived it. Hover a
+   date for its time, or a cut location for the whole path. At 1280 px every column shows once the
+   jContent navigation is closed
 5. Click an item to **preview** it in the side panel before deciding to restore it
 
 ### Via Search

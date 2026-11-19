@@ -28,15 +28,24 @@ const archiveCell = ({body, title, cell, column, row}) => (
     </TableBodyCell>
 );
 
+// Column widths: jContent's own columns are fixed (publicationStatus 15, selection 56, name 300,
+// visibleActions 60 px). Ours add up to 740 px so that the whole table fits the 1176 px a 1280 px
+// window leaves with the navigation closed. Each one holds its header and sort arrow on one line in
+// English and French (Emplacement d'origine 198 px, Date d'archivage 158 px) and a date of the day;
+// a longer value is cut, and the cell's title holds it whole.
+
+// A date column shows the day; the cell's title gives the full date and time
+const DAY_FORMAT = {dateStyle: 'medium'};
+
 const typeColumn = {
     id: 'archiveContentType',
     label: 'label.archiveManager.table.type',
     accessor: 'primaryNodeType.displayName',
     sortable: true,
     property: 'primaryNodeType.displayName',
-    Cell: props => archiveCell({...props, body: props.value || '-'}),
+    Cell: props => archiveCell({...props, body: props.value || '-', title: props.value}),
     Header: ArchiveHeader,
-    width: '160px'
+    width: '120px'
 };
 
 const originalPathColumn = {
@@ -47,7 +56,7 @@ const originalPathColumn = {
     property: 'originalPath.value',
     Cell: props => archiveCell({...props, body: props.value || '-', title: props.value}),
     Header: ArchiveHeader,
-    width: '260px'
+    width: '200px'
 };
 
 const dateCell = props => {
@@ -57,7 +66,7 @@ const dateCell = props => {
 
     return archiveCell({
         ...props,
-        body: formatDateTime(props.value),
+        body: formatDateTime(props.value, DAY_FORMAT),
         title: formatDateTime(props.value, {dateStyle: 'full', timeStyle: 'medium'})
     });
 };
@@ -71,7 +80,7 @@ const createdColumn = {
     property: 'created.value',
     Cell: dateCell,
     Header: ArchiveHeader,
-    width: '190px'
+    width: '125px'
 };
 
 const archivedAtColumn = {
@@ -82,7 +91,7 @@ const archivedAtColumn = {
     property: 'archivedAt.value',
     Cell: dateCell,
     Header: ArchiveHeader,
-    width: '190px'
+    width: '160px'
 };
 
 const archivedByColumn = {
@@ -96,7 +105,7 @@ const archivedByColumn = {
         return archiveCell({...props, body: props.value || '-', title: uuid});
     },
     Header: ArchiveHeader,
-    width: '160px'
+    width: '135px'
 };
 
 const registerArchiveManagerComponents = () => {
