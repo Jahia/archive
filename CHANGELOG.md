@@ -5,6 +5,20 @@ All notable changes to the Archive Content extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.0
+
+### New Features
+
+* Added archiving of whole content folders and of several items at once, from the right-click menu, the tree and the selection bar. Each item of an archived folder can be restored on its own, and a folder that still holds published content is refused, with the languages it is published in.
+
+* Added a Created column to the Archive Manager, and archived folders can now be opened there to browse what they hold.
+
+### Bug Fixes
+
+* Fixed notifications that always showed in English, and that did not show at all on jContent 3.8.
+
+* Fixed the preview of archived content in the Archive Manager, so an item can be read before it is restored.
+
 ## 1.1.3
 
 * Fixed archiving so published content is reliably detected and blocked, including content published in only one language. Archiving and restoring now recover cleanly when a step fails, instead of leaving content stuck as archived or editable inside the archive.
