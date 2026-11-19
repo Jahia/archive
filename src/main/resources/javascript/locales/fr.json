@@ -78,5 +78,6 @@
   "notification.notArchived": "{{count}} contenu n'a pas pu être archivé",
   "notification.notArchived_plural": "{{count}} contenus n'ont pas pu être archivés",
   "notification.notArchived_one": "{{count}} contenu n'a pas pu être archivé",
-  "notification.notArchived_other": "{{count}} contenus n'ont pas pu être archivés"
+  "notification.notArchived_other": "{{count}} contenus n'ont pas pu être archivés",
+  "dialog.blocked.tooLarge": "trop de contenus à l’intérieur pour vérifier leur publication ({{count}} éléments) : archivez ses sous-dossiers un par un"
 }

@@ -78,5 +78,6 @@
   "notification.notArchived": "{{count}} item could not be archived",
   "notification.notArchived_plural": "{{count}} items could not be archived",
   "notification.notArchived_one": "{{count}} item could not be archived",
-  "notification.notArchived_other": "{{count}} items could not be archived"
+  "notification.notArchived_other": "{{count}} items could not be archived",
+  "dialog.blocked.tooLarge": "too much content inside to check its publication ({{count}} items): archive its sub-folders one by one"
 }

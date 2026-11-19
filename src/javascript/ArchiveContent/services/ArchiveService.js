@@ -110,6 +110,10 @@ class ArchiveService {
                     nodeByPath(path: $path) {
                         ${statusFields}
                         descendants(typesFilter: {types: ["jnt:content", "jnt:contentFolder", "jnt:page"], multi: ANY}) {
+                            pageInfo {
+                                totalCount
+                                nodesCount
+                            }
                             nodes {
                                 ${statusFields}
                             }
@@ -127,6 +131,16 @@ class ArchiveService {
         const node = data.jcr?.nodeByPath;
         if (!node) {
             throw new Error(`Unable to read the publication status of ${nodePath}`);
+        }
+
+        // Descendants stops at 5000 nodes while still answering hasNextPage: false. A truncated list
+        // could hide a published item, so a subtree too large to read whole is refused, not guessed.
+        const pageInfo = node.descendants?.pageInfo;
+        if (pageInfo && pageInfo.nodesCount < pageInfo.totalCount) {
+            const error = new Error(`Too much content under ${nodePath} to check its publication (${pageInfo.totalCount} items)`);
+            error.reason = 'tooLarge';
+            error.count = pageInfo.totalCount;
+            throw error;
         }
 
         const nodes = [node, ...(node.descendants?.nodes || [])];
@@ -561,7 +575,9 @@ class ArchiveService {
             console.error('[ArchiveService] Validation failed:', error);
             return {
                 canArchive: false,
-                reason: 'error',
+                // A known refusal keeps its own reason (a subtree too large to check), anything else is an error
+                reason: error.reason || 'error',
+                count: error.count,
                 error
             };
         }

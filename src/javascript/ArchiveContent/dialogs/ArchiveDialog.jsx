@@ -32,6 +32,8 @@ const blockReason = (t, check) => {
             return t('archive:dialog.blocked.alreadyArchived');
         case 'notFound':
             return t('archive:dialog.blocked.notFound');
+        case 'tooLarge':
+            return t('archive:dialog.blocked.tooLarge', {count: check.count});
         default:
             return describeError(t, check.error);
     }
@@ -96,7 +98,8 @@ export const ArchiveDialog = ({paths, notify, onDone, onClose}) => {
         const notArchived = [...outcome.refused, ...outcome.failed];
         if (notArchived.length === 1) {
             const [item] = notArchived;
-            notify(item.error ? describeError(t, item.error) : blockReason(t, item), 'error');
+            const known = item.error?.reason ? {reason: item.error.reason, count: item.error.count} : null;
+            notify(item.error && !known ? describeError(t, item.error) : blockReason(t, known || item), 'error');
         } else if (notArchived.length > 1) {
             notify(t('archive:notification.notArchived', {count: notArchived.length}), 'error');
         }
