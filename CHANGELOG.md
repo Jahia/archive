@@ -5,6 +5,10 @@ All notable changes to the Archive Content extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.1
+
+* The Archive Manager table fits a 1280 px window with the jContent navigation closed: the date columns show the day, with the full date and time in their tooltip, and every archive column stays in view. The module manager shows the module as Archive Content, with a description of what it does.
+
 ## 1.2.0
 
 ### New Features
