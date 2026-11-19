@@ -50,9 +50,8 @@ mvn jahia:deploy
 
 1. Log into Jahia as administrator
 2. Navigate to Content Editor
-3. Select any unpublished content
-4. Open Content Actions menu (⋮)
-5. Confirm "Archive" action appears
+3. Right-click any unpublished content or content folder in jContent
+4. Confirm "Archive Content" appears (also in the row's menu, the left tree, and the bar shown when several items are ticked)
 
 ## Configuration
 
@@ -127,11 +126,12 @@ This grants read but denies write/modify/delete to editors. Administrators retai
 ### Queries
 
 #### GET_NODE_INFO
-Fetches node information. It does **not** carry publication status — that is per-language
-and comes from `GET_PUBLICATION_STATUS`.
+Fetches node information. It does **not** carry publication status: that is per language and per
+node of the subtree, see `ArchivePublicationOfSubtree` below.
 
 **Variables:**
 - `path` (String!): JCR path of the node
+- `language` (String): content language, so `displayName` is the title and not the node name
 
 **Returns:**
 - uuid, path, name, displayName
@@ -140,7 +140,7 @@ and comes from `GET_PUBLICATION_STATUS`.
 - archived flag
 
 #### GET_SITE_LANGUAGES
-Lists the languages of the site owning a node — the set a publication check must cover.
+Lists the languages of the site owning a node - the set a publication check must cover.
 
 **Variables:**
 - `path` (String!): JCR path of the node
@@ -148,16 +148,22 @@ Lists the languages of the site owning a node — the set a publication check mu
 **Returns:**
 - the site's `j:languages` values
 
-#### GET_PUBLICATION_STATUS
-Publication status of a node in one language. Called once per site language; a failure in
-any of them blocks the archive rather than being treated as "not published".
+#### ArchivePublicationOfSubtree
+Built by `ArchiveService.getPublishedLanguages`: one request returning, for the node and each of its
+descendants (`jnt:content`, `jnt:contentFolder`, `jnt:page`), its own status in each site language
+(`aggregatedPublicationInfo(language, subNodes: false)`, one alias per language). A language is
+"published" when any node of the subtree is `PUBLISHED` or `MODIFIED` in it; a missing status
+blocks the archive rather than being treated as "not published".
+
+Not `subNodes: true`: that aggregate answers what remains to publish, so one draft child outweighs
+a published one and a folder holding both reads `NOT_PUBLISHED` (verified on jContent 3.8.1).
 
 **Variables:**
 - `path` (String!): JCR path of the node
-- `language` (String!): language code (mandatory)
+- `l0`, `l1`... (String!): the site languages
 
 **Returns:**
-- `aggregatedPublicationInfo.publicationStatus`
+- the languages with live content in the subtree
 
 #### CHECK_ARCHIVE_FOLDER
 Checks if the archive folder exists.
@@ -191,7 +197,7 @@ Creates the archive root folder.
 Adds the `jmix:archived` mixin **and** every property it declares mandatory, in one request.
 
 These must stay in a single mutation. Split across two requests they are two JCR saves, and a
-failure in between leaves the node carrying the mixin with none of its mandatory properties —
+failure in between leaves the node carrying the mixin with none of its mandatory properties -
 a state neither the Archive action (hidden on `jmix:archived`) nor the Restore action (needs
 `originalParentId`) can undo.
 
@@ -220,6 +226,43 @@ Moves node to archive destination.
 
 **Returns:**
 - uuid, path, name of moved node
+
+## jContent integration
+
+### Where the actions appear
+
+`archiveContent` is registered on `contentItemActions`, `contentItemContextActions`,
+`accordionContentActions` and `selectedContentActions`; `restoreArchive` on the first three and on
+the Archive Manager's own context menu. Never on the legacy `contentActions` target, which reaches a
+different set of menus depending on the jContent version and never the selection bar. The selection
+bar hands an action `paths` when several items are ticked and `path` for one; `useNodeChecks` over
+several paths passes only when every node passes.
+
+### Dialogs and notifications
+
+Dialogs are Moonstone `Modal`s opened with jContent's component renderer
+(`ComponentRendererContext`, `render`/`destroy`): a menu unmounts its items on click, and a dialog
+rendered by the action would close with it. Rendered there, a dialog sits inside jContent's tree and
+uses its translations, Apollo client and store with no provider of its own. Messages go through
+`useNotifications` from `@jahia/react-material`, which the host shares (3.0.5 since jContent 3.6) and
+the webpack config consumes as a singleton with `import: false`; jContent 3.8 has no
+`window.jahia.toastDispatcher`, kept only as a fallback.
+
+### Archive Manager table
+
+`ArchivedNodesQueryHandler` delegates to jContent's own content-folders handler, read from the
+registry (`accordionItem` `content-folders`) when the table queries, and adds one fragment
+(`ArchiveFields`: original path, archive date, archiving user) spread into jContent's `...node`
+placeholder. jContent's side panel takes its node from the table rows, and its Preview tab needs
+`isPage`, `isContent`, `hasCmView`, `displayableNode`, `jView` and `pageAncestors`: a query of the
+module's own missed them and left the preview blank without an error. jContent's handler carries
+whatever its panel needs, on every version. A jContent without that handler gets the former query
+back, with no extra fragment (a fragment the query never spreads is a GraphQL error).
+
+The table's `typeFilter` is `jmix:archived`, `jnt:content` and `jnt:contentFolder`: the archived items
+of a month folder, and the content of an archived folder once opened in the tree, where
+`jnt:contentFolder` is openable. Dates are formatted with `Intl` in jContent's UI language
+(`toLanguageTag` turns Jahia's `zh_CN` into `zh-CN` first).
 
 ## Database Schema
 
@@ -406,7 +449,7 @@ SELECT * FROM [jnt:archiveContentFolder]
 **Resolution**:
 - The publication check runs per site language, in both `validateArchive()` and
   `archiveNode()`; an unreadable status blocks rather than permits
-- A race between validation and the archive itself is still possible — the second check
+- A race between validation and the archive itself is still possible - the second check
   narrows the window but does not close it
 - Enforcement lives in the browser; a backend guard is the only way to close it fully
 
@@ -467,8 +510,8 @@ mutation ExportArchive($path: String!) {
 
 **Using the Restore Action**:
 
-1. Select archived content in Archive Manager or Content Editor
-2. Click "Restore" from Content Actions menu
+1. Select archived content in the Archive Manager (or right-click it anywhere in jContent)
+2. Click "Restore Archive"
 3. Content is moved back to its original location with archived mixin removed
 
 **Manual Restoration via GraphQL** (if needed):
