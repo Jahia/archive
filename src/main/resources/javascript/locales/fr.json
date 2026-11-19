@@ -37,7 +37,7 @@
   "dialog.title.cannotArchive": "Archivage impossible",
   "dialog.checking": "Vérification de la sélection…",
   "dialog.progress": "Archivage {{done}} sur {{total}}…",
-  "dialog.message.folder": "Un dossier est archivé avec tout son contenu. Le dossier lui-même est verrouillé ; les contenus qu'il contient ne sont pas verrouillés un par un.",
+  "dialog.message.folder": "Un dossier est archivé avec tout son contenu. Le dossier et chaque contenu qu'il contient sont verrouillés, et chaque contenu peut être restauré seul.",
   "dialog.blocked.published": "publié en {{languages}}",
   "dialog.blocked.alreadyArchived": "déjà archivé",
   "dialog.blocked.notFound": "introuvable",
@@ -79,5 +79,10 @@
   "notification.notArchived_plural": "{{count}} contenus n'ont pas pu être archivés",
   "notification.notArchived_one": "{{count}} contenu n'a pas pu être archivé",
   "notification.notArchived_other": "{{count}} contenus n'ont pas pu être archivés",
-  "dialog.blocked.tooLarge": "trop de contenus à l’intérieur pour vérifier leur publication ({{count}} éléments) : archivez ses sous-dossiers un par un"
+  "dialog.blocked.tooLarge": "trop de contenus à l’intérieur pour vérifier leur publication ({{count}} éléments) : archivez ses sous-dossiers un par un",
+  "dialog.message.restore.folder": "Le dossier revient avec tout son contenu, déverrouillé.",
+  "dialog.message.restore.recreate": "Ce dossier n'existe plus et sera recréé : {{path}}",
+  "dialog.message.restore.recreate_plural": "Ces dossiers n'existent plus et seront recréés : {{path}}",
+  "dialog.message.restore.recreate_one": "Ce dossier n'existe plus et sera recréé : {{path}}",
+  "dialog.message.restore.recreate_other": "Ces dossiers n'existent plus et seront recréés : {{path}}"
 }

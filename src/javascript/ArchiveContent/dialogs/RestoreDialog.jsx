@@ -27,20 +27,17 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
     const {t} = useTranslation('archive');
     const [phase, setPhase] = useState('loading');
     const [info, setInfo] = useState(null);
-    const [parentExists, setParentExists] = useState(false);
     const [chosenParent, setChosenParent] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
+                // The service resolves where the item goes back: originalParentPath is null when the
+                // editor must choose, and foldersToCreate lists the content folders to create first
                 const archiveInfo = await ArchiveService.getArchiveInfo(path);
-                const exists = archiveInfo.originalParentPath ?
-                    await ArchiveService.checkPathExists(archiveInfo.originalParentPath) :
-                    false;
                 if (!cancelled) {
                     setInfo(archiveInfo);
-                    setParentExists(exists);
                     setPhase('ready');
                 }
             } catch (error) {
@@ -56,7 +53,9 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
         };
     }, [path, notify, onClose, t]);
 
-    const target = chosenParent || (parentExists ? info?.originalParentPath : null);
+    const target = chosenParent || info?.originalParentPath || null;
+    const foldersToCreate = chosenParent ? [] : (info?.foldersToCreate || []);
+    const isFolder = info?.nodeInfo?.primaryNodeType === 'jnt:contentFolder';
     const canPick = Boolean(globalThis.CE_API?.openPicker);
 
     const pickLocation = () => {
@@ -77,6 +76,16 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
 
     const restore = async () => {
         setPhase('running');
+        if (foldersToCreate.length > 0) {
+            try {
+                await ArchiveService.createContentFolders(foldersToCreate);
+            } catch (error) {
+                notify(describeError(t, error), 'error');
+                setPhase('ready');
+                return;
+            }
+        }
+
         const result = await ArchiveService.restoreNode(path, target);
         if (result.success) {
             if (result.markerRemoved === false) {
@@ -128,6 +137,14 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
                                 label={chosenParent ? t('archive:dialog.label.selectedLocation') : t('archive:dialog.label.originalLocation')}
                                 value={target}
                             />
+                            {foldersToCreate.length > 0 && (
+                                <Typography variant="caption">
+                                    {t('archive:dialog.message.restore.recreate', {count: foldersToCreate.length, path: foldersToCreate.join(', ')})}
+                                </Typography>
+                            )}
+                            {isFolder && (
+                                <Typography variant="caption">{t('archive:dialog.message.restore.folder')}</Typography>
+                            )}
                             <Typography variant="caption">{t('archive:dialog.message.restore.details')}</Typography>
                         </>
                     ) : (

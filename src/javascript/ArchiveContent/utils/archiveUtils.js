@@ -143,17 +143,20 @@ export const isNodeArchived = nodeInfo => {
  * Generate a unique name if collision occurs
  * @param {string} originalName - The original node name
  * @param {number} attempt - The attempt number
+ * @param {string} label - What happened to the node: `archived` when it lands in the archive,
+ *   `restored` when it comes back (a restored folder whose name was taken, often because an item of it
+ *   was restored first and its folder created again)
  * @returns {string} A unique name
  */
-export const generateUniqueName = (originalName, attempt = 1) => {
+export const generateUniqueName = (originalName, attempt = 1, label = 'archived') => {
     if (attempt === 1) {
         // First attempt: add timestamp
         const timestamp = Date.now();
-        return `${originalName}-archived-${timestamp}`;
+        return `${originalName}-${label}-${timestamp}`;
     }
 
     // Subsequent attempts: add counter
-    return `${originalName}-archived-${attempt}`;
+    return `${originalName}-${label}-${attempt}`;
 };
 
 /**

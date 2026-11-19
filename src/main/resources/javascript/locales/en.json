@@ -37,7 +37,7 @@
   "dialog.title.cannotArchive": "Cannot Archive",
   "dialog.checking": "Checking the selection…",
   "dialog.progress": "Archiving {{done}} of {{total}}…",
-  "dialog.message.folder": "A folder is archived with everything it contains. The folder itself is locked; the content inside it is not locked one by one.",
+  "dialog.message.folder": "A folder is archived with everything it contains. The folder and each item inside it are locked, and each item can be restored on its own.",
   "dialog.blocked.published": "published in {{languages}}",
   "dialog.blocked.alreadyArchived": "already archived",
   "dialog.blocked.notFound": "not found",
@@ -79,5 +79,10 @@
   "notification.notArchived_plural": "{{count}} items could not be archived",
   "notification.notArchived_one": "{{count}} item could not be archived",
   "notification.notArchived_other": "{{count}} items could not be archived",
-  "dialog.blocked.tooLarge": "too much content inside to check its publication ({{count}} items): archive its sub-folders one by one"
+  "dialog.blocked.tooLarge": "too much content inside to check its publication ({{count}} items): archive its sub-folders one by one",
+  "dialog.message.restore.folder": "The folder comes back with everything it contains, unlocked.",
+  "dialog.message.restore.recreate": "This folder no longer exists and will be created again: {{path}}",
+  "dialog.message.restore.recreate_plural": "These folders no longer exist and will be created again: {{path}}",
+  "dialog.message.restore.recreate_one": "This folder no longer exists and will be created again: {{path}}",
+  "dialog.message.restore.recreate_other": "These folders no longer exist and will be created again: {{path}}"
 }

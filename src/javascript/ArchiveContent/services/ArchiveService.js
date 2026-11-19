@@ -14,11 +14,11 @@ import {
 import {
     CREATE_ARCHIVE_FOLDER,
     CREATE_FOLDER,
-    SET_ARCHIVE_METADATA,
-    REMOVE_ARCHIVE_METADATA,
+    CREATE_CONTENT_FOLDER,
     MOVE_NODE,
-    LOCK_NODE,
-    UNLOCK_NODE
+    buildLockMutation,
+    buildRemoveArchiveMetadataMutation,
+    buildSetArchiveMetadataMutation
 } from '../graphql/mutations';
 
 import {
@@ -32,6 +32,11 @@ import {
     executeGraphQLSilent,
     getJContentContext
 } from '../utils/archiveUtils';
+
+/** `{id0: uuid0, id1: uuid1, ...}`: the variables of the set mutations (graphql/mutations.js). */
+const idVariables = uuids => Object.fromEntries(uuids.map((uuid, i) => [`id${i}`, uuid]));
+
+const parentOf = path => path.substring(0, path.lastIndexOf('/'));
 
 /**
  * Archive service class
@@ -278,31 +283,97 @@ class ArchiveService {
     }
 
     /**
-     * Apply the archive marker - mixin and metadata - in a single request.
+     * The items of a content folder that are archived with it, each with the marker of its own: every
+     * content folder inside it and every node directly in one of them. The children of a content item
+     * (an article's own sub-content) are not items: they go and come back with their item.
      *
-     * One request is one JCR save, so the node either carries the complete marker or
-     * none of it. Adding the mixin separately from its mandatory properties can strand
-     * the node in a half-archived state that neither action can undo.
+     * Rejects a folder whose descendants cannot be read whole (`descendants` stops at 5000 nodes).
+     *
+     * @param {string} folderPath - Path of the folder about to be archived
+     * @returns {Promise<Array<{uuid: string, path: string, parentUuid: string}>>}
      */
-    async setArchiveMetadata(path, originalPath, originalParentId, userUuid) {
-        await executeGraphQL(SET_ARCHIVE_METADATA, {
-            path,
-            archived: 'true',
-            archivedAt: formatJCRDate(),
-            archivedBy: userUuid,
-            originalPath,
-            originalParentId
-        });
+    async getFolderItems(folderPath) {
+        const data = await executeGraphQL(`
+            query ArchiveFolderItems($path: String!) {
+                jcr(workspace: EDIT) {
+                    nodeByPath(path: $path) {
+                        descendants(typesFilter: {types: ["jnt:content", "jnt:contentFolder"], multi: ANY}) {
+                            pageInfo {
+                                totalCount
+                                nodesCount
+                            }
+                            nodes {
+                                uuid
+                                path
+                                parent {
+                                    uuid
+                                    isFolder: isNodeType(type: {types: ["jnt:contentFolder"]})
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `, {path: folderPath});
+        const descendants = data.jcr?.nodeByPath?.descendants;
+        if (!descendants) {
+            throw new Error(`Unable to read the content of ${folderPath}`);
+        }
+
+        if (descendants.pageInfo.nodesCount < descendants.pageInfo.totalCount) {
+            const error = new Error(`Too much content under ${folderPath} to archive it (${descendants.pageInfo.totalCount} items)`);
+            error.reason = 'tooLarge';
+            error.count = descendants.pageInfo.totalCount;
+            throw error;
+        }
+
+        return descendants.nodes
+            .filter(node => node.parent?.isFolder)
+            .map(node => ({uuid: node.uuid, path: node.path, parentUuid: node.parent.uuid}));
     }
 
     /**
-     * Remove the archive marker, dropping the mixin and its properties together.
+     * Apply the archive marker - mixin and metadata - to a set of nodes, in a single request.
+     *
+     * One request is one JCR save, so the set either carries the complete marker or none of it.
+     * Adding the mixin separately from its mandatory properties can strand a node in a half-archived
+     * state that neither action can undo.
+     *
+     * @param {Array<{uuid: string, originalPath: string, originalParentId: string}>} entries
+     * @param {string} userUuid - The archiving user's node
      */
-    async removeArchiveMetadata(pathOrId) {
-        const result = await executeGraphQL(REMOVE_ARCHIVE_METADATA, {pathOrId});
+    async setArchiveMetadata(entries, userUuid) {
+        const variables = {archived: 'true', archivedAt: formatJCRDate(), archivedBy: userUuid};
+        entries.forEach((entry, i) => {
+            variables[`id${i}`] = entry.uuid;
+            variables[`originalPath${i}`] = entry.originalPath;
+            variables[`originalParentId${i}`] = entry.originalParentId;
+        });
+        await executeGraphQL(buildSetArchiveMetadataMutation(entries.length), variables);
+    }
 
-        if (!result?.jcr?.mutateNode) {
+    /**
+     * Remove the archive marker from a set of nodes, dropping each mixin and its properties together.
+     *
+     * @param {string[]} uuids - The nodes
+     */
+    async removeArchiveMetadata(uuids) {
+        const result = await executeGraphQL(buildRemoveArchiveMetadataMutation(uuids.length), idVariables(uuids));
+
+        if (!result?.jcr?.n0) {
             throw new Error('Failed to remove archived mixin');
+        }
+    }
+
+    /**
+     * Lock or unlock a set of nodes in one request.
+     *
+     * @param {string[]} uuids - The nodes
+     * @param {boolean} lock - true to lock, false to unlock
+     */
+    async setLocked(uuids, lock) {
+        if (uuids.length > 0) {
+            await executeGraphQL(buildLockMutation(uuids.length, lock), idVariables(uuids));
         }
     }
 
@@ -311,19 +382,19 @@ class ArchiveService {
      *
      * Best-effort: the caller is already throwing the failure that triggered this, and
      * that error is the one worth surfacing. A rollback that itself fails is logged with
-     * the path, so the half-archived node can be found and cleared by hand.
+     * the nodes, so the half-archived content can be found and cleared by hand.
      *
-     * @param {string} nodePath - Path the marker was applied to
+     * @param {string[]} uuids - The nodes the marker was applied to
      * @param {Error} cause - The failure being compensated
      */
-    async rollbackArchiveMetadata(nodePath, cause) {
+    async rollbackArchiveMetadata(uuids, cause) {
         try {
-            await this.removeArchiveMetadata(nodePath);
+            await this.removeArchiveMetadata(uuids);
         } catch (rollbackError) {
             console.error(
-                `[ArchiveService] Archive of ${nodePath} failed and the archive marker could ` +
-                'not be removed - the node needs clearing by hand.',
-                {cause, rollbackError}
+                `[ArchiveService] Archive failed and the archive marker could not be removed from ${uuids.length} ` +
+                'node(s) - they need clearing by hand.',
+                {uuids, cause, rollbackError}
             );
         }
     }
@@ -435,13 +506,16 @@ class ArchiveService {
                 throw new Error('Unable to determine the current parent of the content');
             }
 
-            // Step 9: Apply the archive marker - mixin and metadata in one save
-            await this.setArchiveMetadata(
-                nodePath,
-                originalPath,
-                originalParentId,
-                currentUser.node.uuid
-            );
+            // Step 9: Apply the archive marker - mixin and metadata in one save - to the node and,
+            // for a content folder, to each item inside it, which can then be restored on its own
+            const isFolder = nodeInfo.primaryNodeType?.name === 'jnt:contentFolder';
+            const items = isFolder ? await this.getFolderItems(nodePath) : [];
+            const entries = [
+                {uuid: nodeInfo.uuid, originalPath, originalParentId},
+                ...items.map(item => ({uuid: item.uuid, originalPath: item.path, originalParentId: item.parentUuid}))
+            ];
+            const uuids = entries.map(entry => entry.uuid);
+            await this.setArchiveMetadata(entries, currentUser.node.uuid);
 
             // Step 10: Move node to archive. On failure, take the marker back off:
             // a node left flagged in its original location is invisible to the Archive
@@ -454,15 +528,15 @@ class ArchiveService {
                     nodeInfo.name
                 );
             } catch (moveError) {
-                await this.rollbackArchiveMetadata(nodePath, moveError);
+                await this.rollbackArchiveMetadata(uuids, moveError);
                 throw moveError;
             }
 
-            // Step 11: Lock the node (make it read-only). The content is archived at
-            // this point; a failed lock is reported, never swallowed, because the
-            // read-only guarantee is the one thing that is then missing.
+            // Step 11: Lock what was archived (make it read-only): the node and the items of a
+            // folder, Jahia locks not being deep. The content is archived at this point; a failed
+            // lock is reported, never swallowed, because the read-only guarantee is then missing.
             try {
-                await executeGraphQL(LOCK_NODE, {pathOrId: movedNode.path});
+                await this.setLocked(uuids, true);
             } catch (lockError) {
                 console.error('[ArchiveService] Archived content could not be locked:', lockError);
                 return {
@@ -628,7 +702,9 @@ class ArchiveService {
             const originalPathProp = properties.find(p => p.name === 'originalPath');
             const originalParentIdProp = properties.find(p => p.name === 'originalParentId');
 
-            // Get original parent path by looking up the parent ID
+            // Get original parent path by looking up the parent ID: it follows the parent if it was
+            // moved or renamed since. A parent that is itself in the archive (an item of an archived
+            // folder) is not where the item goes back: the path the item had is.
             let originalParentPath = null;
             if (originalParentIdProp?.value) {
                 try {
@@ -648,6 +724,13 @@ class ArchiveService {
                 }
             }
 
+            const archiveRoot = getArchiveFolderPath(node.path.split('/')[2]);
+            if (originalParentPath && (originalParentPath === archiveRoot || originalParentPath.startsWith(`${archiveRoot}/`))) {
+                originalParentPath = null;
+            }
+
+            const restoreTarget = await this.resolveRestoreTarget(originalParentPath, originalPathProp?.value);
+
             return {
                 isArchived,
                 nodeInfo: {
@@ -662,12 +745,111 @@ class ArchiveService {
                 archivedBy: archivedByProp?.value,
                 originalPath: originalPathProp?.value,
                 originalParentId: originalParentIdProp?.value,
-                originalParentPath
+                // Where Restore puts the item back by default, null when it must be chosen
+                originalParentPath: restoreTarget.path,
+                // Content folders of that path to create first, top-down (their originals are gone)
+                foldersToCreate: restoreTarget.foldersToCreate
             };
         } catch (error) {
             console.error('[ArchiveService] Failed to get archive info:', error);
             throw error;
         }
+    }
+
+    /**
+     * Where an archived item goes back to.
+     *
+     * Its original parent if it still exists outside the archive; else the path its parent had. When
+     * that path is gone and lies in the site's content folders, the missing folders are created
+     * again (they were content folders); anywhere else (a page, another root) the editor chooses.
+     *
+     * @param {?string} parentPath - The original parent's current path, outside the archive
+     * @param {?string} originalPath - The path the item had
+     * @returns {Promise<{path: ?string, foldersToCreate: string[]}>}
+     */
+    async resolveRestoreTarget(parentPath, originalPath) {
+        if (parentPath && await this.checkPathExists(parentPath)) {
+            return {path: parentPath, foldersToCreate: []};
+        }
+
+        if (!originalPath) {
+            return {path: null, foldersToCreate: []};
+        }
+
+        const formerParent = parentOf(originalPath);
+        const missing = [];
+        let existing = formerParent;
+        // Walking up one ancestor at a time: each step depends on the one before
+        // eslint-disable-next-line no-await-in-loop
+        while (existing && !(await this.checkPathExists(existing))) {
+            missing.unshift(existing);
+            existing = parentOf(existing);
+        }
+
+        if (missing.length === 0) {
+            return {path: formerParent, foldersToCreate: []};
+        }
+
+        // Only content folders are created again: the deepest existing ancestor must be the site's
+        // content root or one of its folders
+        const contentsRoot = /^\/sites\/[^/]+\/contents/.exec(originalPath)?.[0];
+        if (contentsRoot && (existing === contentsRoot || existing.startsWith(`${contentsRoot}/`))) {
+            return {path: formerParent, foldersToCreate: missing};
+        }
+
+        return {path: null, foldersToCreate: []};
+    }
+
+    /**
+     * Create content folders, top-down, so that a restore can put content back where it was.
+     *
+     * @param {string[]} paths - The folders to create, parents first
+     */
+    async createContentFolders(paths) {
+        for (const folderPath of paths) {
+            // Each folder needs the one before it
+            // eslint-disable-next-line no-await-in-loop
+            await executeGraphQL(CREATE_CONTENT_FOLDER, {
+                parentPath: parentOf(folderPath),
+                name: folderPath.substring(folderPath.lastIndexOf('/') + 1)
+            });
+        }
+    }
+
+    /**
+     * The archived nodes of a subtree: the node itself and every archived item inside it (the items
+     * of an archived folder carry the marker of their own), with whether each is locked.
+     *
+     * @param {string} nodePath - Path of the archived node
+     * @returns {Promise<Array<{uuid: string, locked: boolean}>>}
+     */
+    async getArchivedSubtree(nodePath) {
+        const data = await executeGraphQL(`
+            query ArchivedSubtree($path: String!) {
+                jcr(workspace: EDIT) {
+                    nodeByPath(path: $path) {
+                        uuid
+                        lockOwner: property(name: "jcr:lockOwner") {
+                            value
+                        }
+                        descendants(typesFilter: {types: ["jmix:archived"]}) {
+                            nodes {
+                                uuid
+                                lockOwner: property(name: "jcr:lockOwner") {
+                                    value
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `, {path: nodePath});
+        const node = data.jcr?.nodeByPath;
+        if (!node) {
+            throw new Error('Node not found');
+        }
+
+        return [node, ...(node.descendants?.nodes || [])].map(n => ({uuid: n.uuid, locked: Boolean(n.lockOwner)}));
     }
 
     /**
@@ -678,14 +860,15 @@ class ArchiveService {
      * because the content is then sitting in the archive and editable.
      *
      * @param {string} nodePath - Path of the node still in the archive
+     * @param {string[]} uuids - The nodes that were unlocked
      * @param {Error} cause - The restore failure being compensated
      */
-    async relockAfterFailedRestore(nodePath, cause) {
+    async relockAfterFailedRestore(nodePath, uuids, cause) {
         try {
-            await executeGraphQL(LOCK_NODE, {pathOrId: nodePath});
+            await this.setLocked(uuids, true);
         } catch (relockError) {
             console.error(
-                `[ArchiveService] Restore of ${nodePath} failed and the node could not be ` +
+                `[ArchiveService] Restore of ${nodePath} failed and the content could not be ` +
                 're-locked - it stays in the archive and is editable.',
                 {cause, relockError}
             );
@@ -723,11 +906,14 @@ class ArchiveService {
             let finalName = node.name;
 
             if (destExists) {
-                finalName = generateUniqueName(node.name);
+                finalName = generateUniqueName(node.name, 1, 'restored');
             }
 
-            // Step 4: Unlock the node - a locked node cannot be moved out of the archive
-            await executeGraphQL(UNLOCK_NODE, {pathOrId: nodePath});
+            // Step 4: Unlock what is locked in the archived subtree - a locked node cannot be moved
+            // out of the archive, and the items of a folder come back editable with it
+            const archived = await this.getArchivedSubtree(nodePath);
+            const unlocked = archived.filter(n => n.locked).map(n => n.uuid);
+            await this.setLocked(unlocked, false);
 
             // Step 5: Move node to target location. If the move fails the content is
             // still in the archive, so put the lock back: leaving it unlocked there
@@ -740,13 +926,13 @@ class ArchiveService {
                     destName: finalName
                 });
             } catch (moveError) {
-                await this.relockAfterFailedRestore(nodePath, moveError);
+                await this.relockAfterFailedRestore(nodePath, unlocked, moveError);
                 throw moveError;
             }
 
             if (!moveResult?.jcr?.moveNode?.node) {
                 const error = new Error('Failed to move node');
-                await this.relockAfterFailedRestore(nodePath, error);
+                await this.relockAfterFailedRestore(nodePath, unlocked, error);
                 throw error;
             }
 
@@ -756,7 +942,7 @@ class ArchiveService {
             // already back in place; if this fails it still shows as archived, and the
             // Restore action stays available on it so the operation can be retried.
             try {
-                await this.removeArchiveMetadata(movedNodePath);
+                await this.removeArchiveMetadata(archived.map(n => n.uuid));
             } catch (mixinError) {
                 console.error('[ArchiveService] Restored content still carries the archive marker:', mixinError);
                 return {

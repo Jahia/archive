@@ -71,7 +71,7 @@ const createdColumn = {
     property: 'created.value',
     Cell: dateCell,
     Header: ArchiveHeader,
-    width: '150px'
+    width: '190px'
 };
 
 const archivedAtColumn = {
@@ -82,7 +82,7 @@ const archivedAtColumn = {
     property: 'archivedAt.value',
     Cell: dateCell,
     Header: ArchiveHeader,
-    width: '150px'
+    width: '190px'
 };
 
 const archivedByColumn = {
