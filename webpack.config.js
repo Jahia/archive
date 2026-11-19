@@ -59,6 +59,11 @@ module.exports = (env, argv) => {
         },
         plugins: [
         new ModuleFederationPlugin(getModuleFederationConfig(packageJson, {
+                // The host's notification provider (jContent shares @jahia/react-material 3.0.5):
+                // never bundled, a copy of our own would read a context nobody provides.
+                shared: {
+                    '@jahia/react-material': {singleton: true, import: false, requiredVersion: false}
+                },
                 remotes: {
                     //'@jahia/content-editor':'appShell.remotes.contentEditor'
                     '@jahia/jcontent': 'appShell.remotes.jcontent'

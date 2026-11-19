@@ -1,164 +1,81 @@
 /**
- * Archive Content Action Component
- * Jahia UI Extension for archiving content from Content Actions menu
+ * Archive action.
+ *
+ * Offered on pages, content and content folders, from the row menu, the right-click menu, the left
+ * tree and the bar of a multiple selection (jContent hands that bar's actions `paths` when more than
+ * one item is selected, `path` otherwise). The dialog goes through jContent's component renderer: the
+ * menu unmounts its items on click, and a dialog rendered by the action would close with it.
  */
-import React from 'react';
+import React, {useContext} from 'react';
 import PropTypes from 'prop-types';
-import {registry} from '@jahia/ui-extender';
+import {ComponentRendererContext, registry} from '@jahia/ui-extender';
 import {Archive} from '@jahia/moonstone';
 import {useApolloClient} from 'react-apollo';
-import ArchiveService from '../services/ArchiveService';
-import {getErrorMessage} from '../utils/archiveUtils';
-import dialogManager from '../utils/DialogManager';
 import {useNodeChecks} from '@jahia/data-helper';
+import ArchiveDialog from '../dialogs/ArchiveDialog';
+import {ARCHIVABLE_TYPES, NOT_ARCHIVABLE_PATHS} from '../utils/archiveUtils';
+import {refreshAfterMove} from '../utils/refresh';
+import {useNotify} from '../utils/useNotify';
 
-/**
- * Show notification to user
- */
-const showNotification = (message, variant = 'info') => {
-    if (globalThis.jahia?.toastDispatcher) {
-        globalThis.jahia.toastDispatcher.add({
-            message,
-            variant
-        });
-    }
-};
+const DIALOG_KEY = 'archiveContentDialog';
 
-/**
- * Confirmation Dialog Component
- */
-/**
- * Main Archive Action Component
- */
-export const ArchiveContentAction = ({path, render: Render, ...otherProps}) => {
+export const ArchiveContentAction = ({path, paths, render: Render, loading: Loading, ...otherProps}) => {
+    const componentRenderer = useContext(ComponentRendererContext);
     const client = useApolloClient();
-    const {checksResult} = useNodeChecks({path}, {
-        showOnNodeTypes: ['jnt:page', 'jmix:editorialContent', 'jmix:archivable'],
+    const notify = useNotify();
+    // With several paths, useNodeChecks passes only when every node passes
+    const {checksResult, loading} = useNodeChecks(paths ? {paths} : {path}, {
+        showOnNodeTypes: ARCHIVABLE_TYPES,
         hideOnNodeTypes: ['jnt:archiveContentFolder', 'jmix:archived'],
-        hideForPaths: ['^/sites/((?!/).)+/Archives/?$'],
-        requiredPermission: ['archiveContent', 'unarchiveContent'],
+        hideForPaths: NOT_ARCHIVABLE_PATHS,
+        requiredPermission: ['archiveContent'],
         requireModuleInstalledOnSite: ['archive']
     });
 
-    // Get triggerRefetchAll from jContent if available
-    const triggerRefetchAll = React.useMemo(() => {
-        try {
-            const jcontentRefetches = globalThis.jahia?.jcontent?.refetches;
-            return jcontentRefetches?.triggerRefetchAll || (() => {});
-        } catch {
-            return () => {};
-        }
-    }, []);
-
-    /**
-     * Handle action click - validate before showing confirmation
-     */
-    const handleClick = async () => {
-        try {
-            const validation = await ArchiveService.validateArchive(path);
-
-            if (!validation.canArchive) {
-                // Show dialog/notification immediately before component unmounts
-                if (validation.reason === 'published') {
-                    dialogManager.showPublishedWarningDialog({
-                        nodeInfo: validation.nodeInfo,
-                        publishedLanguages: validation.publishedLanguages
-                    });
-                } else if (validation.reason === 'alreadyArchived') {
-                    showNotification('This content is already archived', 'warning');
-                } else {
-                    showNotification(validation.message || 'Cannot archive this content', 'error');
-                }
-
-                return;
-            }
-
-            // Show confirmation dialog
-            dialogManager.showConfirmDialog({
-                nodeInfo: validation.nodeInfo,
-                destinationPreview: validation.destinationPreview,
-                onConfirm: () => handleConfirm()
-            });
-        } catch (error) {
-            console.error('[ArchiveContent] Validation error:', error);
-            showNotification(getErrorMessage(error), 'error');
-        }
-    };
-
-    /**
-     * Handle confirmed archive action
-     */
-    const handleConfirm = async () => {
-        try {
-            const result = await ArchiveService.archiveNode(path);
-
-            if (result.success) {
-                // A false `locked` flag means the content is archived but stayed
-                // editable — a success the user still needs to know about.
-                showNotification(
-                    `${result.message} (${result.destinationPath})`,
-                    result.locked === false ? 'warning' : 'success'
-                );
-
-                // Clear Apollo cache for both paths
-                try {
-                    client.cache.flushNodeEntryByPath(path);
-                    if (result.destinationPath) {
-                        client.cache.flushNodeEntryByPath(result.destinationPath);
-                    }
-                } catch {
-                    // Cache flush failed silently - not critical
-                }
-
-                // Trigger iframe and component refresh
-                triggerRefetchAll();
-
-                // Trigger content refresh if possible
-                if (otherProps.refetch) {
-                    otherProps.refetch();
-                }
-            } else {
-                showNotification(result.message || 'Archive operation failed', 'error');
-            }
-        } catch (error) {
-            console.error('[ArchiveContent] Archive error:', error);
-            showNotification(getErrorMessage(error), 'error');
-        }
-    };
-
-    // If render function provided, use it (for menu rendering)
-    if (Render && checksResult) {
-        return <Render {...otherProps} onClick={handleClick}/>;
+    if (loading) {
+        return Loading ? <Loading {...otherProps}/> : null;
     }
 
-    // This shouldn't happen with proper registration, but provide a fallback
-    return null;
+    if (!Render || !checksResult) {
+        return null;
+    }
+
+    const openDialog = () => {
+        componentRenderer.render(DIALOG_KEY, ArchiveDialog, {
+            paths: paths || [path],
+            notify,
+            onDone: archivedPaths => refreshAfterMove(client, archivedPaths),
+            onClose: () => componentRenderer.destroy(DIALOG_KEY)
+        });
+    };
+
+    return <Render {...otherProps} onClick={openDialog}/>;
 };
 
 ArchiveContentAction.propTypes = {
-    path: PropTypes.string.isRequired,
-    render: PropTypes.func
+    path: PropTypes.string,
+    paths: PropTypes.arrayOf(PropTypes.string),
+    render: PropTypes.func,
+    loading: PropTypes.func
 };
 
 /**
- * Register the action in Jahia UI Extensions
+ * Registers the action on jContent's own menus. Never on the legacy `contentActions` target, which
+ * reaches a different set of menus depending on the jContent version and never the selection bar.
  */
 export const registerArchiveAction = () => {
     registry.addOrReplace('action', 'archiveContent', {
-        targets: ['contentActions:99'],
+        targets: [
+            'contentItemActions:99',
+            'contentItemContextActions:99',
+            'accordionContentActions:99',
+            'selectedContentActions:99'
+        ],
         buttonIcon: <Archive/>,
         buttonLabel: 'archive:label.archiveContent',
-        showOnNodeTypes: ['jnt:page', 'jmix:editorialContent', 'jmix:archivable'],
-        hideOnNodeTypes: ['jnt:archiveContentFolder', 'jmix:archived'],
-        hideForPaths: ['^/sites/((?!/).)+/Archives/?$'],
-        requiredPermission: 'archiveContent',
-        requireModuleInstalledOnSite: 'archive',
         isModal: true,
-        hasBypassChildrenLimit: false,
         component: ArchiveContentAction
     });
-
-    console.info('[ArchiveContent] Archive action registered');
 };
 
 export default ArchiveContentAction;

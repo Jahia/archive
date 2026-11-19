@@ -1,6 +1,6 @@
 # Archive Content - Jahia UI Extension
 
-A production-ready Jahia UI Extension that enables archiving and restoring of JCR content from the jContent editor's Content Actions menu, plus an Archive Manager for browsing archived content.
+A production-ready Jahia UI Extension that enables archiving and restoring of pages, content and content folders from jContent's menus, plus an Archive Manager for browsing archived content.
 
 ## Overview
 
@@ -8,16 +8,18 @@ This extension provides a safe, controlled way to archive and restore unpublishe
 
 ## Features
 
-- **Content Actions Integration**: Archive action accessible from the Content Actions menu (target: `contentActions:999`)
-- **Restore Capability**: Restore archived content to its original location via Content Actions menu
-- **Archive Manager**: Dedicated accordion in jContent for browsing and managing archived content
-- **Archive-Specific Columns**: Type, Original Path, Archived Date, and Archived By columns in the Archive Manager table (jContent 3.7 `tableConfig.columns`)
+- **Archive from every jContent menu**: the row's menu, the right-click menu, the left tree, and the bar shown on a multiple selection (`contentItemActions`, `contentItemContextActions`, `accordionContentActions`, `selectedContentActions`)
+- **Content folders and multiple selections**: archive a whole content folder with everything it holds, or several items at once; items that cannot be archived are listed with the reason and the others can still go
+- **Restore Capability**: Restore archived content to its original location, or to another one picked in the dialog
+- **Archive Manager**: Dedicated accordion in jContent for browsing and managing archived content, including the content of an archived folder
+- **Preview before restoring**: jContent's side panel (Preview, Details, History, Usages) works on archived content, and *Preview* is in the Archive Manager's context menu
+- **Archive-Specific Columns**: Type, Created, Original Location, Archived Date and Archived By columns in the Archive Manager table (jContent 3.7 `tableConfig.columns`), dates in the jContent UI language
 - **Date-Organized Structure**: Automatic organization by year/month (YYYY/MM)
 - **Publication Safety**: Prevents archiving of published content with clear warning dialogs
 - **Metadata Preservation**: Stores original path, parent ID, archive timestamp, and archiving user
 - **GraphQL-Based**: All repository operations use Jahia GraphQL mutations (no REST/JCR API)
-- **Moonstone UX**: Professional dialogs, toasts, loading states, and error handling
-- **Multi-language**: English and French localization included
+- **Moonstone UX**: dialogs are Moonstone `Modal`s rendered through jContent's component renderer, and messages use jContent's own notifications
+- **Multi-language**: English and French localization included; every message, notification and dialog comes from the locale files
 - **Permission-Aware**: Custom permissions for archive, unarchive, and management operations
 
 ## Architecture
@@ -102,11 +104,15 @@ Mixin applied to archived content nodes.
 1. **Validation Phase**
    - Fetch node information via GraphQL
    - Check if already archived → show "Already Archived" dialog
-   - Check publication status in **every language of the site** → show "Cannot Archive" warning if the content is published in any of them
+   - Check publication status in **every language of the site**, for the node **and everything under it** → the item is listed as not archivable, with the languages it is published in, if anything in it is live
+
+   The subtree is checked node by node. jContent's aggregated status answers *what remains to
+   publish*, so a folder holding one published and one draft item reads "not published"; archiving
+   it would take the published item out from under the live workspace.
    - Preview destination path in confirmation dialog
 
-   If the publication status cannot be read — the site languages are unavailable, or a
-   language check fails — validation **blocks** the archive rather than assuming the
+   If the publication status cannot be read - the site languages are unavailable, or a
+   language check fails - validation **blocks** the archive rather than assuming the
    content is unpublished.
 
 2. **Preparation Phase** (if validation passes)
@@ -123,8 +129,25 @@ Mixin applied to archived content nodes.
    - Lock the node so it is no longer editable in place
 
 4. **Completion**
-   - Show success notification with archive path
-   - Optionally refresh content view
+   - Show one notification for the run (how many items were archived, which could not be)
+   - Remove the moved items from jContent's selection and refresh the view
+
+A multiple selection runs the same operation **one item at a time**: each archive may create the
+year and month folders, and two at once would race to create them.
+
+### Archiving a content folder
+
+The folder moves with everything it holds. Each **item** inside it gets its own archive marker and
+lock, in the same request as the folder: every content folder inside it and every content directly
+in a folder (an article's own sub-content goes and comes back with its article). In the Archive
+Manager each item shows its original location, archive date and archiving user, and can be
+**restored on its own**.
+
+Restoring one item: its original folder is in the archive, so it goes back to the path it had. When
+that folder no longer exists, the missing content folders are created again (the dialog lists
+them); outside the site's content folders the editor picks a location. Restoring the whole folder
+unlocks and unmarks everything inside it; if a folder of the same name was created again meanwhile,
+the restored one takes a `-restored-<timestamp>` suffix.
 
 ### Partial outcomes
 
@@ -157,15 +180,15 @@ Archived content becomes read-only through:
 
 **Note:** the lock is the enforcement; the mixin is a marker for your own permission rules.
 For defence in depth, configure role-based ACLs denying write on `jmix:archived` content for
-non-admin roles — the module does not ship those ACLs.
+non-admin roles - the module does not ship those ACLs.
 
 ## GraphQL Operations
 
 ### Key Queries
 
-- `GET_NODE_INFO` - Fetch node details and existing mixins (it does **not** carry publication status; use `GET_PUBLICATION_STATUS`)
+- `GET_NODE_INFO` - Fetch node details, its title in the content language and existing mixins (it does **not** carry publication status)
 - `GET_SITE_LANGUAGES` - List the languages a publication check must cover
-- `GET_PUBLICATION_STATUS` - Publication status of a node, per language
+- `ArchivePublicationOfSubtree` (built in `ArchiveService.getPublishedLanguages`) - each node's own publication status, per site language, for the node and its descendants, in one request
 - `CHECK_ARCHIVE_FOLDER` - Verify archive folder existence
 - `GET_CURRENT_USER` - Get current user reference for metadata
 - `GET_SITE_INFO` - Resolve site key from node path
@@ -174,19 +197,19 @@ non-admin roles — the module does not ship those ACLs.
 
 - `CREATE_ARCHIVE_FOLDER` - Create archive root folder
 - `CREATE_FOLDER` - Create intermediate date folders
-- `SET_ARCHIVE_METADATA` - Add the `jmix:archived` mixin and all of its properties in one request
-- `REMOVE_ARCHIVE_METADATA` - Remove the mixin and its properties, to finish a restore or to undo a failed archive
+- `buildSetArchiveMetadataMutation(n)` - Add the `jmix:archived` mixin and all of its properties to n nodes (an archived folder and its items) in one request
+- `buildRemoveArchiveMetadataMutation(n)` - Remove the mixin and its properties from n nodes, to finish a restore or to undo a failed archive
+- `CREATE_CONTENT_FOLDER` - Create again a content folder a restore puts content back into
 - `MOVE_NODE` - Move node to archive destination
-- `LOCK_NODE` / `UNLOCK_NODE` - Apply and lift the read-only lock
+- `buildLockMutation(n, lock)` - Apply and lift the read-only lock on n nodes
 
 ## Error Handling
 
-The extension provides user-friendly error messages for common scenarios:
+Messages come from the locale files (`error.*` keys) in the jContent UI language:
 
-- **Permission Denied**: "You do not have permission to perform this action."
-- **Content Not Found**: "The content could not be found."
-- **Content Locked**: "The content is locked and cannot be archived."
-- **Generic Errors**: Technical details logged to console, friendly message shown to user
+- **Permission denied**, **content not found**, **content locked**: a sentence of their own
+- **Anything else**: the server's own message, which the editor may need to report
+- Every error is also logged to the console
 
 All errors are logged with `[ArchiveContent]` prefix for debugging.
 
@@ -194,25 +217,22 @@ All errors are logged with `[ArchiveContent]` prefix for debugging.
 
 ### Archiving Content
 
-1. Select a content node in the Content Editor
-2. Open the **Content Actions** menu (three-dot menu or right-click)
-3. Click **Archive**
-4. Review the confirmation dialog showing:
-   - Content name and current path
-   - Archive destination preview (YYYY/MM)
-5. Click **Archive** to confirm or **Cancel** to abort
-6. Success notification appears with archive destination path
+1. In jContent, right-click a page, a content item or a content folder (or open its row's menu, or the left tree's), or tick several items and use the selection bar
+2. Click **Archive Content**
+3. The dialog checks each item and shows:
+   - What will be archived, and where (`Archives/<YYYY>/<MM>`)
+   - What cannot be archived, with the reason: published (and in which languages), already archived, not found
+4. Click **Archive** (or **Archive the other N items** when some are blocked), or **Cancel**
+5. One notification reports the outcome
 
 ### Restoring Archived Content
 
 1. Navigate to archived content in the Archive Manager or locate it in Content Editor
 2. Open the **Content Actions** menu
 3. Click **Restore**
-4. Review the confirmation dialog showing:
-   - Content name and current archive location
-   - Original location where it will be restored
-5. Click **Restore** to confirm or **Cancel** to abort
-6. Success notification appears and content is restored to its original location
+4. Review the dialog: name, current location, archive date, original location
+5. Keep the original location, or **Choose a different location** in the content picker (required when the original one is gone)
+6. Click **Restore**; a notification gives the new location
 
 ### Using Archive Manager
 
@@ -220,29 +240,28 @@ All errors are logged with `[ArchiveContent]` prefix for debugging.
 2. Navigate to the **Archive Manager** accordion in the left sidebar
 3. Browse archived content organized by year/month
 4. Each archived item is listed with archive-specific columns:
-   - **Name** — the archived node's title
-   - **Type** — the primary node type (e.g. Page, News, Image)
-   - **Original Location** — the JCR path the item lived at before archiving
-   - **Archived Date** — timestamp of the archive operation
-   - **Archived By** — user who archived (resolved to a display name; UUID kept as a tooltip)
+   - **Name** - the archived node's title
+   - **Type** - the primary node type (e.g. Page, News, Image)
+   - **Created** - when the content was first created (kept by the move)
+   - **Original Location** - the JCR path the item lived at before archiving
+   - **Archived Date** - timestamp of the archive operation
+   - **Archived By** - user who archived (resolved to a display name; UUID kept as a tooltip)
 5. Click any column header to sort by that field
-6. Select any archived content to:
-   - View its properties and metadata
-   - Restore it to its original location
-   - Preview its content
+6. Click an archived item to open jContent's side panel (**Preview**, Details, History, Usages): read it before deciding to restore it
+7. Right-click it for **Preview**, **Edit**, **Export** and **Restore**
+8. Open an archived content folder in the tree to browse what it holds
 
 ### Published Content Warning
 
-If content is published:
-- A warning dialog blocks the operation
-- Message: "This content is currently published and cannot be archived. Please unpublish this content manually before archiving."
-- User must unpublish manually, then retry archive
+If an item, or anything inside a folder, is published in any language:
+- The dialog lists it as not archivable, with the languages (for example "published in FR, EN")
+- The other items of the selection can still be archived
+- Unpublish it in every language listed, then archive it
 
 ### Already Archived
 
-If content is already archived:
-- Information dialog shows: "This content has already been archived."
-- No duplicate archive operation performed
+The Archive action is not offered on archived content, on the archive tree, on a site's home page
+or on its `contents` root. If an item is archived meanwhile, the dialog lists it as already archived.
 
 ## Installation
 
@@ -272,9 +291,7 @@ To customize, edit `ARCHIVE_FOLDER_NAME` in [archiveUtils.js](src/javascript/Arc
 export const ARCHIVE_FOLDER_NAME = 'Archives'; // Change to your preference
 ```
 
-The name is also spelled out in two other places that must be changed with it: the Archive
-Manager's `rootPath` in [registerArchiveManager.jsx](src/javascript/ArchiveManager/registerArchiveManager.jsx),
-and the `hideForPaths` rule in [ArchiveContentAction.jsx](src/javascript/ArchiveContent/components/ArchiveContentAction.jsx).
+The Archive Manager's root and the paths the Archive action is hidden on are derived from it.
 
 ### Required Permissions
 
@@ -282,7 +299,7 @@ The module defines three custom permissions:
 
 #### archiveContent
 - **Purpose**: Allows archiving of unpublished content
-- **Required for**: Using the Archive action from Content Actions menu
+- **Required for**: the Archive action, and the Archive Manager
 - **Default roles**: editor, editor-in-chief, site-administrator
 
 #### unarchiveContent
@@ -327,7 +344,7 @@ Production builds automatically suppress debug logs.
 ### Prerequisites
 
 - Node.js 20 (the Maven build pins v20.18.0 via `frontend-maven-plugin`)
-- Yarn 1.22 — the project is pinned with `packageManager` in `package.json`. A
+- Yarn 1.22 - the project is pinned with `packageManager` in `package.json`. A
   corepack-managed yarn honours that pin; do not add a `.yarnrc.yml`, which would make
   yarn treat this Berry-style and refuse the v1 lockfile.
 - Maven 3.6+
@@ -419,9 +436,10 @@ setCustomProperty: setProperty(
 
 ## Known Limitations
 
-1. **Single Selection**: Currently supports single node selection (not bulk archive)
-2. **Manual Unpublish**: Published content must be manually unpublished
-3. **Permission Configuration**: archived content is locked, which is what makes it
+1. **Restore one at a time**: archive takes a multiple selection, restore takes one item (each goes back to its own location)
+2. **Two folders after a partial restore**: restoring an item first recreates its folder, so the archived folder restored later comes back next to it, with a `-restored-` suffix, rather than merged into it
+3. **Manual Unpublish**: Published content must be manually unpublished
+4. **Permission Configuration**: archived content is locked, which is what makes it
    read-only. Denying write on `jmix:archived` via role ACLs is an optional extra layer
    the module does not ship.
 
@@ -429,7 +447,7 @@ setCustomProperty: setProperty(
 
 - [x] Unarchive action (restore to original location) - **Completed**
 - [x] Archive search/browser UI - **Completed** (Archive Manager accordion)
-- [ ] Bulk archive (multi-selection support)
+- [x] Bulk archive (multi-selection, content folders) - **Completed**
 - [ ] Scheduled auto-archive based on content age
 - [ ] Archive analytics and reporting
 
@@ -459,7 +477,7 @@ Fixed <the user-visible outcome, one sentence>.
 ```
 
 The bump is `patch`, `minor` or `major`. Write the outcome a content editor would notice,
-not the implementation — no class, method or service names. A purely internal change
+not the implementation - no class, method or service names. A purely internal change
 (refactor, test, CI, docs) needs no fragment. The `Chachalog - Prepare Changelog` workflow
 aggregates the fragments and updates `CHANGELOG.md` on release.
 

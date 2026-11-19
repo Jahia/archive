@@ -30,9 +30,9 @@ The Archive feature allows you to safely move outdated or unused content to a se
 
 ### Step 1: Navigate to Content
 
-1. Open **Content Editor**
-2. Browse to the content you want to archive
-3. Select the content item
+1. Open **jContent**
+2. Browse to the page, content item or content folder you want to archive
+3. To archive several items at once, tick them in the list
 
 ### Step 2: Check Publication Status
 
@@ -48,16 +48,16 @@ The Archive feature allows you to safely move outdated or unused content to a se
 
 ### Step 3: Archive
 
-1. Click the **Content Actions** menu (⋮ three-dot icon)
-2. Select **Archive** from the menu
-3. Review the confirmation dialog:
-   - Content name and current location
-   - Archive destination preview
-4. Click **Archive** to confirm
+1. Right-click the item (or open its ⋮ menu, or right-click it in the left tree). With several items ticked, use the bar above the list.
+2. Select **Archive Content**
+3. Review the dialog:
+   - What will be archived, and where
+   - What cannot be archived, and why (published, and in which languages)
+4. Click **Archive**, or **Archive the other items** when some are blocked
 
 ### Step 4: Confirmation
 
-✅ Success message appears: "Content archived successfully to /mysite/contents/archive/2026/02"
+✅ A message confirms how many items were archived (for example "2 items archived")
 
 The content is now:
 - Moved to the archive folder
@@ -67,12 +67,13 @@ The content is now:
 
 ## Finding Archived Content
 
-### Via Content Tree
+### Via the Archive Manager
 
-1. Open **Content Editor**
-2. Navigate to: **[Your Site] → contents → archive**
-3. Browse by year/month folders
-4. Content is organized: `archive/2026/02/your-content`
+1. Open **jContent**
+2. Click **Archive Manager** in the left menu
+3. Browse by year and month; open an archived folder to see what it holds
+4. Columns: name, type, **creation date**, original location, archive date, who archived it
+5. Click an item to **preview** it in the side panel before deciding to restore it
 
 ### Via Search
 
@@ -92,7 +93,7 @@ Archived content moves from:
 
 To:
 ```
-/mysite/contents/archive/2026/02/old-article
+/sites/mysite/Archives/2026/02/old-article
 ```
 
 ### Metadata
@@ -116,29 +117,41 @@ Each archived item stores:
 **Situation**: News article from 2025 is no longer relevant
 
 **Steps:**
-1. Open the news article in Content Editor
+1. Find the news article in jContent
 2. Verify it's unpublished (or unpublish it)
-3. Content Actions → Archive
+3. Right-click → Archive Content
 4. Confirm archive
 
-**Result**: Article moves to `/mysite/contents/archive/2026/02/old-news`
+**Result**: Article moves to `/sites/mysite/Archives/2026/02/old-news`
+
+### Scenario 1b: Archive a Whole Year
+
+**Situation**: A content folder "2016" holds a year of old articles
+
+**Steps:**
+1. Make sure nothing in the folder is published (unpublish the folder if needed)
+2. Right-click the folder → Archive Content
+3. Confirm
+
+**Result**: The folder moves to the archive with everything it contains, and each article in it is
+archived and locked too. In the Archive Manager, open the folder: each article shows where it came
+from, and can be restored on its own. If its folder no longer exists, it is created again.
 
 ### Scenario 2: Try to Archive Published Page
 
 **Situation**: You attempt to archive a page that's still live
 
 **What happens:**
-- ⚠️ Warning dialog appears: "Cannot Archive Published Content"
-- Message: "Please unpublish this content manually before archiving"
-- The dialog lists **which languages** the content is published in
-- Archive action is blocked
+- ⚠️ The dialog lists the page as not archivable, with **which languages** it is published in
+- Message: "Please unpublish this content in all languages before archiving"
+- Other items of the same selection can still be archived
 
-The check covers every language of the site, so content published in only one language is
-blocked just the same. If the publication status cannot be read at all, the archive is
-blocked rather than allowed.
+The check covers every language of the site and, for a folder, everything inside it: a folder
+holding one published article is blocked. If the publication status cannot be read at all, the
+archive is blocked rather than allowed.
 
 **Resolution:**
-1. Click **Close** on the warning
+1. Click **Cancel** (or archive the other items)
 2. Unpublish the page in every language listed
 3. Retry archive
 
@@ -178,7 +191,7 @@ archived content is meant to be locked.
 
 **Problem**: The content is back where you wanted it, but still carries the archived marker
 
-**Solution**: Run **Restore** on it once more — the action is still available on it, and the
+**Solution**: Run **Restore** on it once more - the action is still available on it, and the
 second run clears the marker.
 
 ### Archive Folder Not Visible
@@ -195,8 +208,8 @@ second run clears the marker.
 **Problem**: You archived content but can't locate it
 
 **Solution**:
-1. Check the success message for the exact path
-2. Navigate to: `contents/archive/[year]/[month]`
+1. Open the **Archive Manager** in jContent's left menu
+2. Browse `[year]/[month]`, or sort by the **Original Location** or **Created** column
 3. Search by original content name
 4. Contact administrator with original path
 
@@ -267,8 +280,10 @@ If you encounter problems:
 
 | Action | Menu Path | Shortcut |
 |--------|-----------|----------|
-| Archive content | Content Actions → Archive | - |
-| View archive | Contents → archive → [year]/[month] | - |
+| Archive content | Right-click → Archive Content (or tick several items) | - |
+| View archive | Archive Manager → [year]/[month] | - |
+| Preview archived content | Archive Manager → click the item | - |
+| Restore | Archive Manager → right-click → Restore Archive | - |
 | Unpublish | Publish → Unpublish | - |
 | Check status | Content toolbar (badge) | - |
 
