@@ -274,7 +274,16 @@ back, with no extra fragment (a fragment the query never spreads is a GraphQL er
 The table's `typeFilter` is `jmix:archived`, `jnt:content` and `jnt:contentFolder`: the archived items
 of a month folder, and the content of an archived folder once opened in the tree, where
 `jnt:contentFolder` is openable. Dates are formatted with `Intl` in jContent's UI language
-(`toLanguageTag` turns Jahia's `zh_CN` into `zh-CN` first).
+(`toLanguageTag` turns Jahia's `zh_CN` into `zh-CN` first): the cell shows the day, its tooltip the
+full date and time.
+
+Column widths are fixed in pixels, like jContent's own (`publicationStatus` 15, `selection` 56,
+`name` 300, `visibleActions` 60). The archive columns add up to 740 px (Type 120, Created 125,
+Original Location 200, Archived Date 160, Archived By 135: each header and its sort arrow on one
+line in English and French), so the table fits the 1176 px that a
+1280 px window leaves with jContent's navigation closed. A value longer than its column (a path, a
+long type name) is cut, and the cell's tooltip holds it whole. With the navigation open the table
+scrolls sideways, as jContent's own table does.
 
 ## Database Schema
 

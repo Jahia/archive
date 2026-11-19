@@ -242,9 +242,9 @@ All errors are logged with `[ArchiveContent]` prefix for debugging.
 4. Each archived item is listed with archive-specific columns:
    - **Name** - the archived node's title
    - **Type** - the primary node type (e.g. Page, News, Image)
-   - **Created** - when the content was first created (kept by the move)
-   - **Original Location** - the JCR path the item lived at before archiving
-   - **Archived Date** - timestamp of the archive operation
+   - **Created** - the day the content was first created (kept by the move); the tooltip gives the time
+   - **Original Location** - the JCR path the item lived at before archiving (whole in the tooltip when cut)
+   - **Archived Date** - the day of the archive operation; the tooltip gives the time
    - **Archived By** - user who archived (resolved to a display name; UUID kept as a tooltip)
 5. Click any column header to sort by that field
 6. Click an archived item to open jContent's side panel (**Preview**, Details, History, Usages): read it before deciding to restore it
