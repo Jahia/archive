@@ -46,6 +46,8 @@
   "dialog.unknown": "Inconnu",
   "error.permission": "Vous n'avez pas les droits pour effectuer cette action.",
   "error.notFound": "Le contenu est introuvable.",
+  "vanityConflict.label": "Utilisée par un contenu archivé",
+  "vanityConflict.message": "Cette URL personnalisée appartient à « {{title}} », archivé le {{date}} par {{user}} depuis {{originalPath}}. Un contenu archivé garde ses URL personnalisées pour les retrouver à sa restauration. Choisissez une autre URL, ou restaurez ce contenu et retirez-lui cette URL.",
   "error.locked": "Le contenu est verrouillé.",
   "error.withDetail": "Une erreur est survenue : {{detail}}",
   "error.unexpected": "Une erreur inattendue est survenue.",
