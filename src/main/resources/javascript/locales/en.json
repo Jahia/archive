@@ -46,6 +46,8 @@
   "dialog.unknown": "Unknown",
   "error.permission": "You do not have permission to perform this action.",
   "error.notFound": "The content could not be found.",
+  "vanityConflict.label": "Used by archived content",
+  "vanityConflict.message": "This vanity URL belongs to “{{title}}”, archived on {{date}} by {{user}} from {{originalPath}}. Archived content keeps its vanity URLs so that restoring it brings them back. Choose another URL, or restore that content and remove the URL from it.",
   "error.locked": "The content is locked.",
   "error.withDetail": "An error occurred: {{detail}}",
   "error.unexpected": "An unexpected error occurred.",

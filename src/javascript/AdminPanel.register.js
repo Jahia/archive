@@ -1,5 +1,6 @@
 import {registerArchiveAction, registerRestoreArchiveAction} from './ArchiveContent';
 import registerArchiveManager from './ArchiveManager/registerArchiveManager';
+import {registerVanityUrlConflict} from './VanityUrlConflict/registerVanityUrlConflict';
 import i18next from 'i18next';
 
 export default async function registerArchiveExtensions() {
@@ -8,4 +9,5 @@ export default async function registerArchiveExtensions() {
     registerArchiveAction();
     registerRestoreArchiveAction();
     registerArchiveManager();
+    registerVanityUrlConflict();
 }
