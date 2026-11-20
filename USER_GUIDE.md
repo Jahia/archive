@@ -173,14 +173,18 @@ archive is blocked rather than allowed.
 
 **Solution**: Contact your site administrator to request the "Archive Content" permission
 
-### Error: "Content is locked"
+### Locked content
 
-**Problem**: Another user is editing the content
+**Problem**: The content is locked, by an editor, a workflow, or because it is marked for deletion
 
-**Solution**: 
-1. Wait for the other user to finish
-2. Or ask them to unlock the content
-3. Retry archive
+**What happens:**
+- Locked content does not offer **Archive** at all, in any menu or in the selection bar
+- A page or folder that holds locked content is listed in the dialog as not archivable: "locked, or
+  holds locked content"
+
+**Solution**:
+1. Unlock the content, or undo its deletion (or publish the deletion)
+2. Retry archive
 
 ### Warning: "Content archived, but it could not be locked"
 

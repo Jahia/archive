@@ -87,10 +87,13 @@ class ArchiveService {
     }
 
     /**
-     * Resolve the languages in which a node, or anything under it, is live.
+     * Resolve the languages in which a node, or anything under it, is live, and which of those nodes
+     * are locked.
      *
-     * Single source of truth for "is this content published": used by both the pre-flight validation
-     * and the archive operation itself, so the two can never disagree.
+     * Single source of truth for "is this content published" and "is this content locked": used by
+     * both the pre-flight validation and the archive operation itself, so the two can never disagree.
+     * A locked node cannot take the archive marker or be moved, whoever holds the lock (an editor, a
+     * workflow, a deletion mark).
      *
      * Reads each node's own status across the subtree, in one query. jContent's aggregated status
      * (`subNodes: true`) answers what remains to publish, so an unpublished child outweighs a
@@ -101,10 +104,11 @@ class ArchiveService {
      * is unpublished.
      *
      * @param {string} nodePath - Path of the node to check
-     * @returns {Promise<Array<{language: string, isPublished: boolean}>>} The languages with live
-     *   content in the subtree; empty when nothing is live
+     * @returns {Promise<{publishedLanguages: Array<{language: string, isPublished: boolean}>, lockedPaths: string[]}>}
+     *   The languages with live content in the subtree (empty when nothing is live), and the paths
+     *   of the locked nodes in it (empty when nothing is locked)
      */
-    async getPublishedLanguages(nodePath) {
+    async getSubtreeState(nodePath) {
         const languages = await this.getSiteLanguages(nodePath);
         const statusFields = languages
             .map((_, i) => `l${i}: aggregatedPublicationInfo(language: $l${i}, subNodes: false, references: false) { publicationStatus }`)
@@ -113,6 +117,10 @@ class ArchiveService {
             query ArchivePublicationOfSubtree($path: String!, ${languages.map((_, i) => `$l${i}: String!`).join(', ')}) {
                 jcr(workspace: EDIT) {
                     nodeByPath(path: $path) {
+                        path
+                        lockOwner: property(name: "jcr:lockOwner") {
+                            value
+                        }
                         ${statusFields}
                         descendants(typesFilter: {types: ["jnt:content", "jnt:contentFolder", "jnt:page"], multi: ANY}) {
                             pageInfo {
@@ -120,6 +128,10 @@ class ArchiveService {
                                 nodesCount
                             }
                             nodes {
+                                path
+                                lockOwner: property(name: "jcr:lockOwner") {
+                                    value
+                                }
                                 ${statusFields}
                             }
                         }
@@ -149,7 +161,7 @@ class ArchiveService {
         }
 
         const nodes = [node, ...(node.descendants?.nodes || [])];
-        return languages
+        const publishedLanguages = languages
             .map((language, i) => {
                 const statuses = nodes.map(n => n[`l${i}`]?.publicationStatus);
                 if (statuses.some(status => !status)) {
@@ -162,6 +174,9 @@ class ArchiveService {
                 };
             })
             .filter(entry => entry.isPublished);
+        const lockedPaths = nodes.filter(n => n.lockOwner).map(n => n.path);
+
+        return {publishedLanguages, lockedPaths};
     }
 
     /**
@@ -453,16 +468,25 @@ class ArchiveService {
                 };
             }
 
-            // Step 3: Check if published, in every language of the site.
+            // Step 3: Check if published, in every language of the site, or locked.
             // Re-checked here rather than trusted from validateArchive: this is the
             // write site, and it is reachable without going through the dialog.
-            const publishedLanguages = await this.getPublishedLanguages(nodePath);
+            const {publishedLanguages, lockedPaths} = await this.getSubtreeState(nodePath);
 
             if (publishedLanguages.length > 0) {
                 return {
                     success: false,
                     reason: 'published',
                     publishedLanguages,
+                    nodeInfo
+                };
+            }
+
+            if (lockedPaths.length > 0) {
+                return {
+                    success: false,
+                    reason: 'locked',
+                    lockedPaths,
                     nodeInfo
                 };
             }
@@ -624,7 +648,7 @@ class ArchiveService {
             }
 
             // Check publication status in all site languages
-            const publishedLanguages = await this.getPublishedLanguages(nodePath);
+            const {publishedLanguages, lockedPaths} = await this.getSubtreeState(nodePath);
 
             if (publishedLanguages.length > 0) {
                 return {
@@ -632,6 +656,15 @@ class ArchiveService {
                     reason: 'published',
                     nodeInfo,
                     publishedLanguages
+                };
+            }
+
+            if (lockedPaths.length > 0) {
+                return {
+                    canArchive: false,
+                    reason: 'locked',
+                    nodeInfo,
+                    lockedPaths
                 };
             }
 

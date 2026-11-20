@@ -24,7 +24,8 @@ export const ArchiveContentAction = ({path, paths, render: Render, loading: Load
     const client = useApolloClient();
     const notify = useNotify();
     // With several paths, useNodeChecks passes only when every node passes
-    const {checksResult, loading} = useNodeChecks(paths ? {paths} : {path}, {
+    const {checksResult, node, nodes, loading} = useNodeChecks(paths ? {paths} : {path}, {
+        getLockInfo: true,
         showOnNodeTypes: ARCHIVABLE_TYPES,
         hideOnNodeTypes: ['jnt:archiveContentFolder', 'jmix:archived'],
         hideForPaths: NOT_ARCHIVABLE_PATHS,
@@ -36,7 +37,10 @@ export const ArchiveContentAction = ({path, paths, render: Render, loading: Load
         return Loading ? <Loading {...otherProps}/> : null;
     }
 
-    if (!Render || !checksResult) {
+    // A locked node cannot be moved, whoever holds the lock: marking for deletion locks it too
+    const isLocked = (nodes || [node]).some(n => n?.lockOwner);
+
+    if (!Render || !checksResult || isLocked) {
         return null;
     }
 

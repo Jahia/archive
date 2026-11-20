@@ -28,6 +28,8 @@ const blockReason = (t, check) => {
             return t('archive:dialog.blocked.published', {
                 languages: (check.publishedLanguages || []).map(l => l.language.toUpperCase()).join(', ')
             });
+        case 'locked':
+            return t('archive:dialog.blocked.locked');
         case 'alreadyArchived':
             return t('archive:dialog.blocked.alreadyArchived');
         case 'notFound':

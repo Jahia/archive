@@ -40,6 +40,7 @@
   "dialog.message.folder": "A folder is archived with everything it contains. The folder and each item inside it are locked, and each item can be restored on its own.",
   "dialog.blocked.published": "published in {{languages}}",
   "dialog.blocked.alreadyArchived": "already archived",
+  "dialog.blocked.locked": "locked, or holds locked content (being edited, or marked for deletion): unlock it first",
   "dialog.blocked.notFound": "not found",
   "dialog.loading": "Loading…",
   "dialog.restoring": "Restoring…",
