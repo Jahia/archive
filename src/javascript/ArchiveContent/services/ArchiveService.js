@@ -876,12 +876,116 @@ class ArchiveService {
     }
 
     /**
+     * Find the vanity URLs of an archived subtree that another node of the site now uses.
+     *
+     * Jahia refuses a vanity URL held by archived content, so a duplicate only comes from a write
+     * that bypassed that check (an import, a direct write). Restoring would then leave two nodes
+     * answering the same URL, and the one served would depend on which was saved last. Both
+     * workspaces are searched: the unpublished live copy of the archived content keeps its vanity
+     * URLs, with the same identifiers, so those are excluded by identifier, not by path.
+     *
+     * @param {string} nodePath - Path of the archived item
+     * @returns {Promise<Array<{uuid: string, url: string, language: string, ownerPath: string,
+     *   usedBy: Array<{path: string, displayName: string, workspace: string}>}>>} One entry per vanity
+     *   URL of the subtree that is used elsewhere; empty when none is
+     */
+    async getVanityUrlConflicts(nodePath) {
+        const {language} = getJContentContext();
+        const data = await executeGraphQL(`
+            query ArchivedVanityUrls($path: String!) {
+                jcr(workspace: EDIT) {
+                    nodeByPath(path: $path) {
+                        site {
+                            path
+                        }
+                        descendants(typesFilter: {types: ["jnt:vanityUrl"]}) {
+                            nodes {
+                                uuid
+                                path
+                                url: property(name: "j:url") {
+                                    value
+                                }
+                                language: property(name: "jcr:language") {
+                                    value
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `, {path: nodePath});
+        const node = data.jcr?.nodeByPath;
+        const own = (node?.descendants?.nodes || []).filter(vanity => vanity.url?.value);
+        if (own.length === 0) {
+            return [];
+        }
+
+        const ownUuids = new Set(own.map(vanity => vanity.uuid));
+        const urls = [...new Set(own.map(vanity => vanity.url.value))];
+        // JCR-SQL2 string literal: a quote is escaped by doubling it
+        const literal = value => `'${value.replace(/'/g, '\'\'')}'`;
+        const query = `SELECT * FROM [jnt:vanityUrl] WHERE ISDESCENDANTNODE(${literal(node.site.path)}) AND (${urls.map(url => `[j:url] = ${literal(url)}`).join(' OR ')})`;
+
+        const usedBy = new Map();
+        for (const workspace of ['EDIT', 'LIVE']) {
+            // eslint-disable-next-line no-await-in-loop
+            const result = await executeGraphQL(`
+                query VanityUrlsInUse($query: String!, $language: String) {
+                    jcr(workspace: ${workspace}) {
+                        nodesByQuery(query: $query, queryLanguage: SQL2) {
+                            nodes {
+                                uuid
+                                url: property(name: "j:url") {
+                                    value
+                                }
+                                owner: parent {
+                                    parent {
+                                        path
+                                        displayName(language: $language)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            `, {query, language});
+            (result.jcr?.nodesByQuery?.nodes || [])
+                .filter(other => !ownUuids.has(other.uuid))
+                .forEach(other => {
+                    const url = other.url?.value;
+                    const owner = other.owner?.parent;
+                    const holders = usedBy.get(url) || [];
+                    if (owner && !holders.some(holder => holder.path === owner.path)) {
+                        holders.push({path: owner.path, displayName: owner.displayName, workspace});
+                    }
+
+                    usedBy.set(url, holders);
+                });
+        }
+
+        return own
+            .filter(vanity => usedBy.get(vanity.url.value)?.length > 0)
+            .map(vanity => ({
+                uuid: vanity.uuid,
+                url: vanity.url.value,
+                language: vanity.language?.value,
+                // A vanity URL sits at <owner>/vanityUrlMapping/<name>
+                ownerPath: vanity.path.split('/').slice(0, -2).join('/'),
+                usedBy: usedBy.get(vanity.url.value)
+            }));
+    }
+
+    /**
      * Restore archived node to original or new location
      * @param {string} nodePath - Path to archived node
      * @param {string} targetParentPath - Path to parent where node should be restored
-     * @returns {Promise<Object>} Restore result
+     * @param {Object} [options]
+     * @param {string[]} [options.vanityUrlsToRemove] - Identifiers of the subtree's vanity URLs the
+     *   editor agreed to remove because another node uses them (see getVanityUrlConflicts)
+     * @returns {Promise<Object>} Restore result; `reason: 'vanityUrlConflict'` with `conflicts` when a
+     *   vanity URL is used elsewhere and was not agreed to be removed
      */
-    async restoreNode(nodePath, targetParentPath) {
+    async restoreNode(nodePath, targetParentPath, {vanityUrlsToRemove = []} = {}) {
         try {
             console.log('[ArchiveService] Restoring node:', nodePath, 'to parent:', targetParentPath);
 
@@ -909,13 +1013,43 @@ class ArchiveService {
                 finalName = generateUniqueName(node.name, 1, 'restored');
             }
 
-            // Step 4: Unlock what is locked in the archived subtree - a locked node cannot be moved
+            // Step 4: Re-checked here rather than trusted from the dialog: a vanity URL taken since
+            // the dialog opened is refused, not restored as a duplicate
+            const conflicts = await this.getVanityUrlConflicts(nodePath);
+            const toRemove = new Set(vanityUrlsToRemove);
+            if (conflicts.some(conflict => !toRemove.has(conflict.uuid))) {
+                return {
+                    success: false,
+                    reason: 'vanityUrlConflict',
+                    conflicts
+                };
+            }
+
+            // Step 5: Unlock what is locked in the archived subtree - a locked node cannot be moved
             // out of the archive, and the items of a folder come back editable with it
             const archived = await this.getArchivedSubtree(nodePath);
             const unlocked = archived.filter(n => n.locked).map(n => n.uuid);
             await this.setLocked(unlocked, false);
 
-            // Step 5: Move node to target location. If the move fails the content is
+            // Step 6: Remove the vanity URLs another node now uses, while still in the archive: if it
+            // fails, nothing has moved and the lock goes back
+            const removable = conflicts.map(conflict => conflict.uuid);
+            if (removable.length > 0) {
+                try {
+                    await executeGraphQL(`
+                        mutation RemoveConflictingVanityUrls {
+                            jcr {
+                                ${removable.map((uuid, i) => `v${i}: deleteNode(pathOrId: ${JSON.stringify(uuid)})`).join('\n')}
+                            }
+                        }
+                    `);
+                } catch (removeError) {
+                    await this.relockAfterFailedRestore(nodePath, unlocked, removeError);
+                    throw removeError;
+                }
+            }
+
+            // Step 7: Move node to target location. If the move fails the content is
             // still in the archive, so put the lock back: leaving it unlocked there
             // silently drops the read-only guarantee while the toast reports a failure.
             let moveResult;
@@ -938,7 +1072,7 @@ class ArchiveService {
 
             const movedNodePath = moveResult.jcr.moveNode.node.path;
 
-            // Step 6: Remove jmix:archived mixin (properties go with it). The content is
+            // Step 8: Remove jmix:archived mixin (properties go with it). The content is
             // already back in place; if this fails it still shows as archived, and the
             // Restore action stays available on it so the operation can be retried.
             try {
@@ -948,6 +1082,7 @@ class ArchiveService {
                 return {
                     success: true,
                     markerRemoved: false,
+                    vanityUrlsRemoved: removable.length,
                     destinationPath: movedNodePath
                 };
             }
@@ -955,6 +1090,7 @@ class ArchiveService {
             return {
                 success: true,
                 markerRemoved: true,
+                vanityUrlsRemoved: removable.length,
                 destinationPath: movedNodePath
             };
         } catch (error) {

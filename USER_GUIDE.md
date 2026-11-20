@@ -196,6 +196,16 @@ archived content is meant to be locked.
 **Solution**: Run **Restore** on it once more - the action is still available on it, and the
 second run clears the marker.
 
+### Restore: "Vanity URL already used by another page"
+
+**Problem**: While the content was archived, another page got one of its vanity URLs
+
+**What happens:** the restore dialog lists each such vanity URL and the page that uses it now. The
+button becomes **Remove the vanity URL and restore**: the restored content loses those vanity URLs,
+the other page keeps them, and its other vanity URLs come back unchanged.
+
+**Solution**: Restore with the button, or cancel and free the URL on the other page first.
+
 ### Archive Folder Not Visible
 
 **Problem**: You can't find the archive folder
