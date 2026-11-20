@@ -115,6 +115,11 @@ Mixin applied to archived content nodes.
    language check fails - validation **blocks** the archive rather than assuming the
    content is unpublished.
 
+   A node that is locked, or holds a locked node, is refused too, whoever holds the lock (an
+   editor, a workflow, a deletion mark). The Archive action is not offered on a locked node.
+   Content marked for deletion gets its own reason: under the Archives folder, which is never
+   published, its deletion could never be completed.
+
 2. **Preparation Phase** (if validation passes)
    - Resolve site key from node path
    - Check if archive folder exists at `/sites/<siteKey>/Archives`
