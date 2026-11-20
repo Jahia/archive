@@ -87,13 +87,14 @@ class ArchiveService {
     }
 
     /**
-     * Resolve the languages in which a node, or anything under it, is live, and which of those nodes
-     * are locked.
+     * Resolve the languages in which a node, or anything under it, is live, which of those nodes are
+     * locked, and which of them are marked for deletion.
      *
      * Single source of truth for "is this content published" and "is this content locked": used by
      * both the pre-flight validation and the archive operation itself, so the two can never disagree.
      * A locked node cannot take the archive marker or be moved, whoever holds the lock (an editor, a
-     * workflow, a deletion mark).
+     * workflow, a deletion mark). A node marked for deletion is told apart: moved under the Archives
+     * folder, which is never published, its deletion could never be published.
      *
      * Reads each node's own status across the subtree, in one query. jContent's aggregated status
      * (`subNodes: true`) answers what remains to publish, so an unpublished child outweighs a
@@ -104,9 +105,9 @@ class ArchiveService {
      * is unpublished.
      *
      * @param {string} nodePath - Path of the node to check
-     * @returns {Promise<{publishedLanguages: Array<{language: string, isPublished: boolean}>, lockedPaths: string[]}>}
+     * @returns {Promise<{publishedLanguages: Array<{language: string, isPublished: boolean}>, lockedPaths: string[], markedForDeletionPaths: string[]}>}
      *   The languages with live content in the subtree (empty when nothing is live), and the paths
-     *   of the locked nodes in it (empty when nothing is locked)
+     *   of its locked nodes and of its nodes marked for deletion (each empty when there are none)
      */
     async getSubtreeState(nodePath) {
         const languages = await this.getSiteLanguages(nodePath);
@@ -121,6 +122,7 @@ class ArchiveService {
                         lockOwner: property(name: "jcr:lockOwner") {
                             value
                         }
+                        markedForDeletion: isNodeType(type: {types: ["jmix:markedForDeletion"]})
                         ${statusFields}
                         descendants(typesFilter: {types: ["jnt:content", "jnt:contentFolder", "jnt:page"], multi: ANY}) {
                             pageInfo {
@@ -132,6 +134,7 @@ class ArchiveService {
                                 lockOwner: property(name: "jcr:lockOwner") {
                                     value
                                 }
+                                markedForDeletion: isNodeType(type: {types: ["jmix:markedForDeletion"]})
                                 ${statusFields}
                             }
                         }
@@ -175,8 +178,9 @@ class ArchiveService {
             })
             .filter(entry => entry.isPublished);
         const lockedPaths = nodes.filter(n => n.lockOwner).map(n => n.path);
+        const markedForDeletionPaths = nodes.filter(n => n.markedForDeletion).map(n => n.path);
 
-        return {publishedLanguages, lockedPaths};
+        return {publishedLanguages, lockedPaths, markedForDeletionPaths};
     }
 
     /**
@@ -468,16 +472,25 @@ class ArchiveService {
                 };
             }
 
-            // Step 3: Check if published, in every language of the site, or locked.
+            // Step 3: Check if published, in every language of the site, marked for deletion, or locked.
             // Re-checked here rather than trusted from validateArchive: this is the
             // write site, and it is reachable without going through the dialog.
-            const {publishedLanguages, lockedPaths} = await this.getSubtreeState(nodePath);
+            const {publishedLanguages, lockedPaths, markedForDeletionPaths} = await this.getSubtreeState(nodePath);
 
             if (publishedLanguages.length > 0) {
                 return {
                     success: false,
                     reason: 'published',
                     publishedLanguages,
+                    nodeInfo
+                };
+            }
+
+            if (markedForDeletionPaths.length > 0) {
+                return {
+                    success: false,
+                    reason: 'markedForDeletion',
+                    markedForDeletionPaths,
                     nodeInfo
                 };
             }
@@ -648,7 +661,7 @@ class ArchiveService {
             }
 
             // Check publication status in all site languages
-            const {publishedLanguages, lockedPaths} = await this.getSubtreeState(nodePath);
+            const {publishedLanguages, lockedPaths, markedForDeletionPaths} = await this.getSubtreeState(nodePath);
 
             if (publishedLanguages.length > 0) {
                 return {
@@ -656,6 +669,15 @@ class ArchiveService {
                     reason: 'published',
                     nodeInfo,
                     publishedLanguages
+                };
+            }
+
+            if (markedForDeletionPaths.length > 0) {
+                return {
+                    canArchive: false,
+                    reason: 'markedForDeletion',
+                    nodeInfo,
+                    markedForDeletionPaths
                 };
             }
 
