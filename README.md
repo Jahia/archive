@@ -234,6 +234,11 @@ All errors are logged with `[ArchiveContent]` prefix for debugging.
 5. Keep the original location, or **Choose a different location** in the content picker (required when the original one is gone)
 6. Click **Restore**; a notification gives the new location
 
+If another page now uses one of the vanity URLs of the content (or of anything restored with it),
+the dialog lists each one with the page that holds it, and the button becomes **Remove … and
+restore**: those vanity URLs are removed from the restored content, the other pages keep them, and
+the URLs still free come back unchanged. The check runs again at restore time.
+
 ### Using Archive Manager
 
 1. Open jContent

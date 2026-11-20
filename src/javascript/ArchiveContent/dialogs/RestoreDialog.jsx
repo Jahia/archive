@@ -28,6 +28,7 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
     const [phase, setPhase] = useState('loading');
     const [info, setInfo] = useState(null);
     const [chosenParent, setChosenParent] = useState(null);
+    const [conflicts, setConflicts] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -35,9 +36,13 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
             try {
                 // The service resolves where the item goes back: originalParentPath is null when the
                 // editor must choose, and foldersToCreate lists the content folders to create first
-                const archiveInfo = await ArchiveService.getArchiveInfo(path);
+                const [archiveInfo, vanityUrlConflicts] = await Promise.all([
+                    ArchiveService.getArchiveInfo(path),
+                    ArchiveService.getVanityUrlConflicts(path)
+                ]);
                 if (!cancelled) {
                     setInfo(archiveInfo);
+                    setConflicts(vanityUrlConflicts);
                     setPhase('ready');
                 }
             } catch (error) {
@@ -86,8 +91,15 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
             }
         }
 
-        const result = await ArchiveService.restoreNode(path, target);
-        if (result.success) {
+        const result = await ArchiveService.restoreNode(path, target, {
+            vanityUrlsToRemove: conflicts.map(conflict => conflict.uuid)
+        });
+        if (result.reason === 'vanityUrlConflict') {
+            // Another node took one of its vanity URLs since the dialog opened: show the new list
+            setConflicts(result.conflicts);
+            notify(t('archive:notification.vanityUrlConflictChanged'), 'warning');
+            setPhase('ready');
+        } else if (result.success) {
             if (result.markerRemoved === false) {
                 notify(t('archive:notification.restoredStillMarked', {path: result.destinationPath}), 'warning');
             } else {
@@ -154,6 +166,22 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
                         </>
                     )}
                 </section>
+                {conflicts.length > 0 && (
+                    <section className={styles.section}>
+                        <Typography weight="bold">{t('archive:dialog.section.vanityUrlConflicts', {count: conflicts.length})}</Typography>
+                        {conflicts.map(conflict => (
+                            <Typography key={conflict.uuid}>
+                                <span className={styles.path}>{conflict.url}</span>
+                                {conflict.language ? ` (${conflict.language})` : ''}
+                                {' - '}
+                                {t('archive:dialog.label.vanityUrlUsedBy', {
+                                    pages: conflict.usedBy.map(holder => `${holder.displayName} (${holder.path})`).join(', ')
+                                })}
+                            </Typography>
+                        ))}
+                        <Typography variant="caption">{t('archive:dialog.message.restore.vanityUrlConflicts', {count: conflicts.length})}</Typography>
+                    </section>
+                )}
                 {phase === 'running' && (
                     <div className={styles.waiting}>
                         <Loader size="small"/>
@@ -185,7 +213,9 @@ export const RestoreDialog = ({path, notify, onDone, onClose}) => {
                     {phase !== 'loading' && (
                         <Button
                             color="accent"
-                            label={t('archive:button.restore')}
+                            label={conflicts.length > 0 ?
+                                t('archive:button.removeVanityUrlsAndRestore', {count: conflicts.length}) :
+                                t('archive:button.restore')}
                             isDisabled={!target || phase === 'running'}
                             onClick={restore}
                         />
