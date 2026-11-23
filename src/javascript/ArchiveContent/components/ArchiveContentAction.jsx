@@ -32,11 +32,11 @@ export const ArchiveContentAction = ({path, paths, render: Render, loading: Load
         requireModuleInstalledOnSite: ['archive']
     });
 
-    if (loading) {
-        return Loading ? <Loading {...otherProps}/> : null;
+    if (loading && Loading) {
+        return <Loading {...otherProps}/>;
     }
 
-    if (!Render || !checksResult) {
+    if (!Render) {
         return null;
     }
 
@@ -49,7 +49,10 @@ export const ArchiveContentAction = ({path, paths, render: Render, loading: Load
         });
     };
 
-    return <Render {...otherProps} onClick={openDialog}/>;
+    // Hidden through the render prop, never by returning null: jContent's menus show their items
+    // once none is loading, and an item that rendered Loading then nothing stays loading for good,
+    // which left every right-click and row menu on grey placeholders (1.2.0 to 1.2.1).
+    return <Render {...otherProps} isVisible={!loading && Boolean(checksResult)} onClick={openDialog}/>;
 };
 
 ArchiveContentAction.propTypes = {
