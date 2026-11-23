@@ -34,7 +34,7 @@
     <groupId>org.jahia.se.modules</groupId>
     <artifactId>archive</artifactId>
     <name>Archive Content</name>
-    <version>1.2.2</version>
+    <version>1.2.3-SNAPSHOT</version>
     <packaging>bundle</packaging>
     <description>Archive and restore pages, content and content folders from jContent, with an Archive Manager to browse what was archived.</description>
 
