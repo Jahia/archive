@@ -369,6 +369,9 @@ mvn clean install
 
 ### Testing
 
+`yarn test` runs the unit tests (Vitest), among them the check that the actions keep jContent's
+menus working where they are hidden.
+
 Run the module in a Jahia development environment:
 
 ```bash

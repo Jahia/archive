@@ -250,6 +250,12 @@ different set of menus depending on the jContent version and never the selection
 bar hands an action `paths` when several items are ticked and `path` for one; `useNodeChecks` over
 several paths passes only when every node passes.
 
+Where its checks fail, an action hides itself through jContent's render prop
+(`<Render isVisible={false}/>`), never by returning `null`. A jContent menu shows its items once none
+is loading, and an item that rendered `Loading` and then nothing stays loading for good: in 1.2.0 and
+1.2.1 every right-click and row menu stayed on grey placeholders wherever an archive action was
+hidden. `actionsInMenus.spec.js` holds the rule (`yarn test`).
+
 ### Dialogs and notifications
 
 Dialogs are Moonstone `Modal`s opened with jContent's component renderer
